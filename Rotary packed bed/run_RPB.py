@@ -52,13 +52,13 @@ if __name__ == '__main__':
         Remove_Pressure_Drop(RPB)
         
     homotopy_points = np.linspace(0.2, 1, 5)
-    # RPB_model.init_routine_1(RPB)#, homotopy_points)
+    RPB_model.init_routine_2(RPB)#, homotopy_points)
 
-    from_json(RPB, fname="low_co2_initialization_no_dP.json.gz", gz=True)
+    # from_json(RPB, fname="low_co2_initialization_no_dP.json.gz", gz=True)
     
 
     
-    RPB_model.solve_model(RPB,)# optarg={'max_iter': 0})
+    # RPB_model.solve_model(RPB,)# optarg={'max_iter': 0})
     Results = RPB_model.report(RPB)
     # Results_Inlet_Loading = RPB_model.report_loading(RPB)
     

@@ -747,25 +747,29 @@ def RPB_model(mode, gas_flow_direction=1, has_pressure_drop=True):
         doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
     )
     def P_surf(m, z, o):
-        # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
-        eps = 1e-8
-        Cs_r_smooth_max = 0.5 * (
-            m.Cs_r[z, o]
-            + (m.Cs_r[z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
-        )
-        return Cs_r_smooth_max * m.Rg * m.Ts[z, o]
+        return m.Cs_r[z,o] * m.Rg * m.Ts[z, o]
 
     @m.Expression(m.z, m.o, doc="log(Psurf)")
     def ln_Psurf(m, z, o):
         return log(m.P_surf[z, o] / units.bar)  # must make dimensionless
+    
+    m.iso_w_term1 = Var(
+        m.z,
+        m.o,
+        bounds=(-1e3, 1e3))
 
-    @m.Expression(m.z, m.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma")
-    def iso_w_term1(m, z, o):
-        return (m.ln_Psurf[z, o] - ln_pstep1(m.Ts[z, o])) / sigma_1(m.Ts[z, o])
+    @m.Constraint(m.z, m.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma")
+    def iso_w_term1_eqn(m, z, o):
+        return m.iso_w_term1[z,o] == (m.ln_Psurf[z, o] - ln_pstep1(m.Ts[z, o])) / sigma_1(m.Ts[z, o])
+    
+    m.iso_w_term2 = Var(
+        m.z,
+        m.o,
+        bounds=(-1e3, 1e3))
 
-    @m.Expression(m.z, m.o, doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma")
-    def iso_w_term2(m, z, o):
-        return (m.ln_Psurf[z, o] - ln_pstep2(m.Ts[z, o])) / sigma_2(m.Ts[z, o])
+    @m.Constraint(m.z, m.o, doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma")
+    def iso_w_term2_eqn(m, z, o):
+        return m.iso_w_term2[z, o] == (m.ln_Psurf[z, o] - ln_pstep2(m.Ts[z, o])) / sigma_2(m.Ts[z, o])
 
     @m.Expression(m.z, m.o, doc="log of weighting function 1")
     def ln_w1(m, z, o):
