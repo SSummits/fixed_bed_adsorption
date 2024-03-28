@@ -18,7 +18,7 @@ def Remove_Pressure_Drop(b):
 
 if __name__ == '__main__':
     
-    has_pressure_drop = True
+    has_pressure_drop = False
     RPB = RPB_model.full_model_creation(lean_temp_connection=True,
                                         configuration='counter-current')
     RPB_model.add_ads_inlet_comp_constraint(RPB.ads)
@@ -35,7 +35,8 @@ if __name__ == '__main__':
             'N2': 0.8768,
             'H2O': 0.0841}
     
-    
+    RPB_model.scale_model(RPB.ads, gas_flow_direction=1, mode="adsorption")
+    RPB_model.scale_model(RPB.des, gas_flow_direction=-1, mode="desorption")
     # @RPB.Expression()
     # def obj(RPB):
     #     return RPB.energy_requirement
@@ -51,14 +52,17 @@ if __name__ == '__main__':
     if not has_pressure_drop:
         Remove_Pressure_Drop(RPB)
         
-    homotopy_points = np.linspace(0.2, 1, 5)
-    RPB_model.init_routine_2(RPB)#, homotopy_points)
+    homotopy_points = np.linspace(0.1, 1, 10)
+    # RPB_model.init_routine_1(RPB, homotopy_points)
 
-    # from_json(RPB, fname="low_co2_initialization_no_dP.json.gz", gz=True)
+    from_json(RPB, fname="temp_new_isotherm_w_dP_5.json.gz", gz=True)
     
+    for z in RPB.ads.z:
+        for o in RPB.ads.o:
+            RPB.ads.dPdz[z,o].setlb(-20)
 
     
-    # RPB_model.solve_model(RPB,)# optarg={'max_iter': 0})
+    RPB_model.solve_model(RPB,)# optarg={'max_iter': 0})
     Results = RPB_model.report(RPB)
     # Results_Inlet_Loading = RPB_model.report_loading(RPB)
     

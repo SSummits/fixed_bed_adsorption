@@ -738,9 +738,10 @@ def RPB_model(mode, gas_flow_direction=1, has_pressure_drop=True):
 
     def q_star_3(P, T):
         return q_inf_3 * d_3(T) * P / (1 + d_3(T) * P) + d_4(T) * P
-
+    
     # =============================================
-
+    # New isoterm formulation
+    
     @m.Expression(
         m.z,
         m.o,
@@ -748,48 +749,94 @@ def RPB_model(mode, gas_flow_direction=1, has_pressure_drop=True):
     )
     def P_surf(m, z, o):
         return m.Cs_r[z,o] * m.Rg * m.Ts[z, o]
-
-    @m.Expression(m.z, m.o, doc="log(Psurf)")
-    def ln_Psurf(m, z, o):
-        return log(m.P_surf[z, o] / units.bar)  # must make dimensionless
     
-    m.iso_w_term1 = Var(
-        m.z,
-        m.o,
-        bounds=(-1e3, 1e3))
-
-    @m.Constraint(m.z, m.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma")
-    def iso_w_term1_eqn(m, z, o):
-        return m.iso_w_term1[z,o] == (m.ln_Psurf[z, o] - ln_pstep1(m.Ts[z, o])) / sigma_1(m.Ts[z, o])
+    m.term_c1 = Var(m.z, m.o, bounds=(-10, 20))
+    m.term_c2 = Var(m.z, m.o, bounds=(-10, 20))
     
-    m.iso_w_term2 = Var(
+    @m.Constraint(
         m.z,
-        m.o,
-        bounds=(-1e3, 1e3))
+        m.o)
+    def term_c1_eqn(b, z, o):
+        return (b.P_surf[z,o] / P_step_01) - exp(m.term_c1[z,o]) == 0
+    
+    @m.Constraint(
+        m.z,
+        m.o)
+    def term_c2_eqn(b, z, o):
+        return (b.P_surf[z,o] / P_step_02) - exp(m.term_c2[z,o]) == 0
+    
+    @m.Expression(
+        m.z,
+        m.o)
+    def iso_w1(b, z, o):
+        return (
+            exp(b.term_c1[z,o]/sigma_1(m.Ts[z,o])) / (
+                1 + exp(b.term_c1[z,o]/sigma_1(m.Ts[z,o]))
+                )
+            ) ** gamma_1
+    
+    @m.Expression(
+        m.z,
+        m.o)
+    def iso_w2(b, z, o):
+        return (
+            exp(b.term_c2[z,o]/sigma_2(m.Ts[z,o])) / (
+                2 + exp(b.term_c2[z,o]/sigma_2(m.Ts[z,o]))
+                )
+            ) ** gamma_2
+    
+    # =============================================
+    # Old isotherm formulation
 
-    @m.Constraint(m.z, m.o, doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma")
-    def iso_w_term2_eqn(m, z, o):
-        return m.iso_w_term2[z, o] == (m.ln_Psurf[z, o] - ln_pstep2(m.Ts[z, o])) / sigma_2(m.Ts[z, o])
+    # @m.Expression(
+    #     m.z,
+    #     m.o,
+    #     doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
+    # )
+    # def P_surf(m, z, o):
+    #     return m.Cs_r[z,o] * m.Rg * m.Ts[z, o]
 
-    @m.Expression(m.z, m.o, doc="log of weighting function 1")
-    def ln_w1(m, z, o):
-        # return gamma_1*log(exp(m.iso_w_term1[z,o])/(1+exp(m.iso_w_term1[z,o])))
-        # return gamma_1*(log(exp(m.iso_w_term1[z,o])) - log(1+exp(m.iso_w_term1[z,o])))
-        return gamma_1 * (m.iso_w_term1[z, o] - log(1 + exp(m.iso_w_term1[z, o])))
+    # @m.Expression(m.z, m.o, doc="log(Psurf)")
+    # def ln_Psurf(m, z, o):
+    #     return log(m.P_surf[z, o] / units.bar)  # must make dimensionless
+    
+    # m.iso_w_term1 = Var(
+    #     m.z,
+    #     m.o,
+    #     bounds=(-1e3, 1e3))
 
-    @m.Expression(m.z, m.o, doc="log of weighting function 2")
-    def ln_w2(m, z, o):
-        # return gamma_2*log(exp(m.iso_w_term2[z,o])/(1+exp(m.iso_w_term2[z,o])))
-        # return gamma_2*(log(exp(m.iso_w_term2[z,o])) - log(1+exp(m.iso_w_term2[z,o])))
-        return gamma_2 * (m.iso_w_term2[z, o] - log(1 + exp(m.iso_w_term2[z, o])))
+    # @m.Constraint(m.z, m.o, doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma")
+    # def iso_w_term1_eqn(m, z, o):
+    #     return m.iso_w_term1[z,o] == (m.ln_Psurf[z, o] - ln_pstep1(m.Ts[z, o])) / sigma_1(m.Ts[z, o])
+    
+    # m.iso_w_term2 = Var(
+    #     m.z,
+    #     m.o,
+    #     bounds=(-1e3, 1e3))
 
-    @m.Expression(m.z, m.o, doc="weighting function 1")
-    def iso_w1(m, z, o):
-        return exp(m.ln_w1[z, o])
+    # @m.Constraint(m.z, m.o, doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma")
+    # def iso_w_term2_eqn(m, z, o):
+    #     return m.iso_w_term2[z, o] == (m.ln_Psurf[z, o] - ln_pstep2(m.Ts[z, o])) / sigma_2(m.Ts[z, o])
 
-    @m.Expression(m.z, m.o, doc="weighting function 2")
-    def iso_w2(m, z, o):
-        return exp(m.ln_w2[z, o])
+    # @m.Expression(m.z, m.o, doc="log of weighting function 1")
+    # def ln_w1(m, z, o):
+    #     # return gamma_1*log(exp(m.iso_w_term1[z,o])/(1+exp(m.iso_w_term1[z,o])))
+    #     # return gamma_1*(log(exp(m.iso_w_term1[z,o])) - log(1+exp(m.iso_w_term1[z,o])))
+    #     return gamma_1 * (m.iso_w_term1[z, o] - log(1 + exp(m.iso_w_term1[z, o])))
+
+    # @m.Expression(m.z, m.o, doc="log of weighting function 2")
+    # def ln_w2(m, z, o):
+    #     # return gamma_2*log(exp(m.iso_w_term2[z,o])/(1+exp(m.iso_w_term2[z,o])))
+    #     # return gamma_2*(log(exp(m.iso_w_term2[z,o])) - log(1+exp(m.iso_w_term2[z,o])))
+    #     return gamma_2 * (m.iso_w_term2[z, o] - log(1 + exp(m.iso_w_term2[z, o])))
+
+    # @m.Expression(m.z, m.o, doc="weighting function 1")
+    # def iso_w1(m, z, o):
+    #     return exp(m.ln_w1[z, o])
+
+    # @m.Expression(m.z, m.o, doc="weighting function 2")
+    # def iso_w2(m, z, o):
+    #     return exp(m.ln_w2[z, o])
 
     @m.Expression(m.z, m.o, doc="isotherm loading expression [mol/kg]")
     def qCO2_eq(m, z, o):
@@ -2075,14 +2122,16 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current", h
     @RPB.Constraint(RPB.des.z)
     def rich_loading_constraint(RPB, z):
         if 0 < z < 1:
-            return RPB.interface_scale * (RPB.des.qCO2[z, 0] - RPB.ads.qCO2[z, 1]) == 0
+            return (RPB.des.qCO2[z,0] / RPB.ads.qCO2[z,1] - 1) == 0
+            # return RPB.interface_scale * (RPB.des.qCO2[z, 0] - RPB.ads.qCO2[z, 1]) == 0
         else:
             return Constraint.Skip
 
     @RPB.Constraint(RPB.des.z)
     def rich_temp_constraint(RPB, z):
         if 0 < z < 1:
-            return RPB.interface_scale * (RPB.des.Ts[z, 0] - RPB.ads.Ts[z, 1]) == 0
+            return (RPB.des.Ts[z,0] / RPB.ads.Ts[z,1] - 1) == 0
+            # return RPB.interface_scale * (RPB.des.Ts[z, 0] - RPB.ads.Ts[z, 1]) == 0
         else:
             return Constraint.Skip
 
@@ -2098,7 +2147,8 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current", h
     @RPB.Constraint(RPB.ads.z)
     def lean_loading_constraint(RPB, z):
         if 0 < z < 1:
-            return RPB.interface_scale * (RPB.ads.qCO2[z, 0] - RPB.des.qCO2[z, 1]) == 0
+            return (RPB.ads.qCO2[z,0] / RPB.des.qCO2[z,1] - 1) == 0
+            # return RPB.interface_scale * (RPB.ads.qCO2[z, 0] - RPB.des.qCO2[z, 1]) == 0
         else:
             return Constraint.Skip
 
@@ -2107,7 +2157,8 @@ def full_model_creation(lean_temp_connection=True, configuration="co-current", h
         @RPB.Constraint(RPB.ads.z)
         def lean_temp_constraint(RPB, z):
             if 0 < z < 1:
-                return RPB.interface_scale * (RPB.ads.Ts[z, 0] - RPB.des.Ts[z, 1]) == 0
+                return (RPB.ads.Ts[z,0] / RPB.des.Ts[z,1] - 1) == 0
+                # return RPB.interface_scale * (RPB.ads.Ts[z, 0] - RPB.des.Ts[z, 1]) == 0
             else:
                 return Constraint.Skip
 
@@ -2759,13 +2810,13 @@ def scale_model(m, gas_flow_direction, mode):
                 iscale.set_scaling_factor(m.dqCO2do[z, o], 1e-2)
                 iscale.set_scaling_factor(m.dqCO2do_disc_eq[z, o], 1e-2)
                 iscale.set_scaling_factor(m.pde_gasEB[z, o], 1e0)
-                iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e2)
+                iscale.set_scaling_factor(m.pde_solidEB[z, o], 1e-2)
                 iscale.set_scaling_factor(m.pde_solidMB[z, o], 1e-3)
                 iscale.set_scaling_factor(m.dheat_fluxdz[z, o], 1e-2)
                 iscale.set_scaling_factor(m.dTsdo[z, o], 1e-1)
                 iscale.set_scaling_factor(m.dTsdo_disc_eq[z, o], 1e-1)
                 iscale.set_scaling_factor(m.pde_gasMB["CO2", z, o], 100)
-                iscale.set_scaling_factor(m.Q_gs_eq[z, o], 1)
+                iscale.set_scaling_factor(m.Q_gs_eq[z, o], 1e-4)
                 iscale.set_scaling_factor(m.Q_gs[z, o], 0.01)
                 iscale.set_scaling_factor(m.Q_delH[z, o], 0.01)
                 iscale.set_scaling_factor(m.Q_delH_eq[z, o], 0.01)
@@ -2876,7 +2927,7 @@ def solve_model(blk, optarg=None):
             "warm_start_init_point": "yes",
             "bound_push": 1e-22,
             "halt_on_ampl_error": "yes",
-            "tol": 1e-4
+            "tol": 1e-6
         }
     else:
         solver.options = optarg
