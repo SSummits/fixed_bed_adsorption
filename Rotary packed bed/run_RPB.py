@@ -15,6 +15,18 @@ def Remove_Pressure_Drop(b):
     b.des.F_in.fix()
     b.des.P_in.fix()
     b.des.P_out.unfix()
+    
+def set_polishing_bounds(sections: list):
+    for section in sections:
+        section.P_in.setub(10)
+        section.L.setub(40)
+        for z in section.z:
+            for o in section.o:
+                section.dPdz[z,o].setub(5)
+                section.dPdz[z,o].setlb(-5)
+                section.C_tot.setub(250)
+                section.P[z,o].setub(10)
+                section.vel[z,o].setub(15)
 
 if __name__ == '__main__':
     
@@ -55,14 +67,14 @@ if __name__ == '__main__':
     homotopy_points = np.linspace(0.1, 1, 10)
     # RPB_model.init_routine_1(RPB, homotopy_points)
 
-    from_json(RPB, fname="temp_new_isotherm_w_dP_5.json.gz", gz=True)
+    from_json(RPB, fname="temp_new_isotherm_w_dP_8.json.gz", gz=True)
     
     for z in RPB.ads.z:
         for o in RPB.ads.o:
             RPB.ads.dPdz[z,o].setlb(-20)
 
     
-    RPB_model.solve_model(RPB,)# optarg={'max_iter': 0})
+    opt_res = RPB_model.solve_model(RPB)#, optarg={'max_iter': 0})
     Results = RPB_model.report(RPB)
     # Results_Inlet_Loading = RPB_model.report_loading(RPB)
     

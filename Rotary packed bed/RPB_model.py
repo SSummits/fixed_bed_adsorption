@@ -750,8 +750,8 @@ def RPB_model(mode, gas_flow_direction=1, has_pressure_drop=True):
     def P_surf(m, z, o):
         return m.Cs_r[z,o] * m.Rg * m.Ts[z, o]
     
-    m.term_c1 = Var(m.z, m.o, bounds=(-10, 20))
-    m.term_c2 = Var(m.z, m.o, bounds=(-10, 20))
+    m.term_c1 = Var(m.z, m.o, initialize=0, bounds=(-10, 20))
+    m.term_c2 = Var(m.z, m.o, initialize=0, bounds=(-10, 20))
     
     @m.Constraint(
         m.z,
@@ -2922,7 +2922,7 @@ def solve_model(blk, optarg=None):
     solver = SolverFactory("ipopt")
     if optarg == None:
         solver.options = {
-            "max_iter": 500,
+            "max_iter": 3000,
             "nlp_scaling_method": 'user-scaling',
             "warm_start_init_point": "yes",
             "bound_push": 1e-22,
@@ -2931,4 +2931,22 @@ def solve_model(blk, optarg=None):
         }
     else:
         solver.options = optarg
-    solver.solve(blk, tee=True)
+    res = solver.solve(blk, tee=True)
+    
+    return res
+
+def NEOS_solver(blk):
+    from pyomo.environ import SolverManagerFactory
+    solver_manager = SolverManagerFactory('neos')
+    results = solver_manager.solve(
+        blk,
+        tee=True,
+        # keedfiles=True,
+        solver="conopt",
+        # tmpdir="temp",
+        options={'outlev': 2,
+                'workfactor': 3,},
+        # add_options=["gams_model.optfile=1;"],
+    )
+    
+    return results
