@@ -2948,5 +2948,6 @@ def NEOS_solver(blk):
                 'workfactor': 3,},
         # add_options=["gams_model.optfile=1;"],
     )
+    results.write()
     
     return results
