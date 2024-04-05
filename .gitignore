@@ -11,3 +11,6 @@ Rotary packed bed/run_RPB.py
 Rotary packed bed/.ipynb_checkpoints/RPB_notebook-checkpoint.ipynb
 Rotary packed bed/.ipynb_checkpoints/RPB_notebook-checkpoint.ipynb
 *.gz
+/Rotary packed bed/asl_io
+*.sol
+*.csv
