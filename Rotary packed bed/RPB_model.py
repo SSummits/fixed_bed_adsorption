@@ -59,7 +59,7 @@ from idaes.core.util.tables import (
 from idaes.core import declare_process_block_class, UnitModelBlockData, useDefault
 from idaes.core.util.config import is_transformation_method, is_physical_parameter_block
 
-import finitevolume
+# import finitevolume
 from idaes.core.solvers.homotopy import homotopy
 from idaes.core.initialization.block_triangularization import (
     BlockTriangularizationInitializer,
@@ -3661,8 +3661,8 @@ def report_old(blk):
     )
 
     indexed_items = [
-        blk.ads.gas_inlet.y_in,
-        blk.ads.gas_outlet.y_out,
+        blk.ads_gas_inlet.mole_frac_comp,
+        blk.ads_gas_outlet.mole_frac_comp,
     ]
 
     names = []
