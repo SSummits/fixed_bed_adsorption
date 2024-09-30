@@ -65,10 +65,23 @@ m.fs.regeneration_prod = Product(property_package = m.fs.gas_props)
 
 
 # limited discretization, much faster
+# m.fs.RPB = RotaryPackedBed(
+#     property_package = m.fs.gas_props,
+#     z_init_points = (0.01,0.99),
+#     o_init_points = (0.01,0.99),
+# )
+
+# increased number of discretization points, lower mass balance error
+z_init_points=tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1])
+o_init_points=tuple(np.geomspace(0.005, 0.1, 8)) + tuple(np.linspace(0.1, 0.995, 10)[1:])
+z_nfe=20
+o_nfe=20
 m.fs.RPB = RotaryPackedBed(
     property_package = m.fs.gas_props,
-    z_init_points = (0.01,0.99),
-    o_init_points = (0.01,0.99),
+    z_init_points=z_init_points,
+    o_init_points=o_init_points,
+    z_nfe=z_nfe,
+    o_nfe=o_nfe,
 )
 
 # add stream connections
@@ -85,9 +98,9 @@ TransformationFactory("network.expand_arcs").apply_to(m)
 m.fs.flue_gas_in.pressure.fix(1.5*1e5)
 m.fs.flue_gas_in.temperature.fix(90+273.15)
 m.fs.flue_gas_out.pressure.fix(1.01325*1e5)
-m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.005)
+m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.0022)
 m.fs.flue_gas_in.mole_frac_comp[0,"H2O"].fix(0.09)
-m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.005-0.09)
+m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.0022-0.09)
 
 #des side
 m.fs.steam_sweep_feed.pressure.fix(1.015*1e5)
@@ -124,17 +137,18 @@ optarg = {
     "nlp_scaling_method": "user-scaling",
 }
 init_points = [1e-5,1e-3,1e-1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]
-init_points = [1e-5, 0.25, 0.5, 0.75, 1]
+# init_points = [1e-5, 0.25, 0.5, 0.75, 1]
 # m.fs.RPB.initialize(outlvl=idaeslog.DEBUG, optarg=optarg, initialization_points=init_points)
 
-iutil.from_json(m, fname='RPB_polishing_init.json.gz')
+# iutil.from_json(m, fname='RPB_polishing_init.json.gz')
+iutil.from_json(m, fname='95PCC_high_elems.json.gz')
 
 # full solve with IPOPT
 Solver = get_solver("ipopt", optarg)
-Solver.solve(m, tee=True).write()
+# Solver.solve(m, tee=True).write()
 
 RPB_Polishing_Costing(m.fs)
-Solver.solve(m, tee=True)
+# Solver.solve(m, tee=True)
 
 design_variables = [
     m.fs.flue_gas_in.pressure,
@@ -144,15 +158,22 @@ design_variables = [
     m.fs.RPB.w_rpm,
     m.fs.RPB.ads.theta,
     m.fs.RPB.L,
+    m.fs.RPB.D,
 ]
+
+m.fs.RPB.ads.inlet_properties[0.0].flow_mol.fix()
+m.fs.RPB.ads.Tx[0].setlb(273+25)
 
 @m.fs.Objective()
 def min_LCOC(b):
+    # return b.RPB.energy_requirement[0]
     return b.costing.LCOC
 
 for v in design_variables:
     v.unfix()
-m.fs.RPB.ads.CO2_capture.fix()
+m.fs.RPB.ads.CO2_capture.fix(0.9)
 
 # Solver.solve(m, tee=True)
+# import numpy as np
+# for cap in np.linspace(0.9, 0.99)
 solver_methods.NEOS_solver(m.fs)
