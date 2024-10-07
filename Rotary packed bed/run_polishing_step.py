@@ -3,7 +3,7 @@
 from idaes.core import FlowsheetBlock
 from idaes.models.unit_models import Feed, Product
 from RPB_model import RotaryPackedBed
-from RPB_costing import RPB_Polishing_Costing
+# from RPB_costing import RPB_Polishing_Costing
 
 from pyomo.environ import (
     ConcreteModel,
@@ -36,6 +36,8 @@ from idaes.core.util.model_diagnostics import DiagnosticsToolbox
 
 import numpy as np
 import solver_methods
+
+from costing.rpb_costing import build_RPB_costing
 
 # create Flowsheet block
 m = ConcreteModel()
@@ -147,7 +149,7 @@ iutil.from_json(m, fname='95PCC_high_elems.json.gz')
 Solver = get_solver("ipopt", optarg)
 # Solver.solve(m, tee=True).write()
 
-RPB_Polishing_Costing(m.fs)
+build_RPB_costing(m.fs)
 # Solver.solve(m, tee=True)
 
 design_variables = [
