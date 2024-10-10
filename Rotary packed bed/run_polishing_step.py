@@ -167,15 +167,32 @@ m.fs.RPB.ads.inlet_properties[0.0].flow_mol.fix()
 m.fs.RPB.ads.Tx[0].setlb(273+25)
 
 @m.fs.Objective()
-def min_LCOC(b):
-    # return b.RPB.energy_requirement[0]
-    return b.costing.LCOC
+def min_energy(b):
+    return b.RPB.energy_requirement[0]
+    # return b.costing.LCOC
 
 for v in design_variables:
     v.unfix()
-m.fs.RPB.ads.CO2_capture.fix(0.9)
+m.fs.RPB.ads.CO2_capture.fix(0.667)
 
-# Solver.solve(m, tee=True)
-# import numpy as np
-# for cap in np.linspace(0.9, 0.99)
-solver_methods.NEOS_solver(m.fs)
+
+# Make adjustment to initial guesses if needed
+iutil.from_json(m, fname='json_files/95PCC_80RPB.json.gz')
+m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.001268)
+m.fs.flue_gas_in.mole_frac_comp[0,"H2O"].fix(0.09)
+m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.001268-0.09)
+
+
+# Minimize Energy Requirement
+# solver_methods.NEOS_solver(m.fs)
+Solver.solve(m, tee=True)#, symbolic_solver_labels=True)
+
+
+# Switch to minimize cost and solve
+m.fs.min_energy.deactivate()
+@m.fs.Objective()
+def min_cost(b):
+    return b.costing.LCOC
+# solver_methods.NEOS_solver(m.fs)
+
+# iutil.to_json(m, fname='json_files/97PCC_667RPB.json.gz')

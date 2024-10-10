@@ -46,7 +46,9 @@ def build_RPB_costing(fs):
 
     # Parameters
     RPB_steam_power = fs.RPB.total_thermal_energy[0]
-    fs.steam_flow_mass = Var(fs.time, initialize=0, units=units.lb / units.h)
+    fs.steam_flow_mass = Var(fs.time,
+                             initialize=fs.RPB.total_thermal_energy[0]() / 2257.92,
+                             units=units.lb / units.h)
     @fs.Constraint(fs.time)
     def steam_flow_mass_eqn(b, t):
         steam_heat_of_vaporization = 2257.92 * units.kJ / units.kg
@@ -116,16 +118,23 @@ def build_RPB_costing(fs):
         doc="total TPC in $MM",
     )
 
-    @fs.costing.Constraint()
+    @fs.Constraint()
     def total_TPC_eqn(b):
-        return b.total_TPC == (
-            sum(centralized_TPCs) +
-            sum(sum(block.total_plant_cost[key] for key in block.total_plant_cost.keys()) for block in distributed_systems) * fs.number_of_units
+        return b.costing.total_TPC == (
+            sum(centralized_TPCs) + (
+                sum(b.vessels.costing.total_plant_cost[key] for key in b.vessels.costing.total_plant_cost.keys())/120
+            ) * fs.number_of_units
         )
+
+        # return b.total_TPC == (
+        #     sum(centralized_TPCs) +
+        #     sum(sum(block.total_plant_cost[key] for key in block.total_plant_cost.keys()) for block in distributed_systems) * fs.number_of_units
+        # )
 
 
     resources = [
-        "sorbent"
+        "sorbent",
+        "electricity"
     ]
 
     capacity_factor = 0.85
@@ -140,13 +149,19 @@ def build_RPB_costing(fs):
             * b.parent_block().number_of_units
         )
     
+    @fs.costing.Expression(fs.time)
+    def electricity_rate(b, t):
+        RPB = b.parent_block().RPB
+        return RPB.total_thermal_energy[t]
+    
     rates = [
-        fs.costing.sorbent_rate
+        fs.costing.sorbent_rate,
+        fs.costing.electricity_rate,
     ]
 
     prices = {
         "sorbent": 200 * units.USD_2018 / units.ft**3,
-
+        "electricity": 0.06 * units.USD_2018 / units.kWh,
     }
 
     fs.costing.tonne_CO2_capture = Var(
@@ -191,4 +206,4 @@ def build_RPB_costing(fs):
 
     @fs.costing.Expression()
     def LCOC(b):
-        return units.convert(b.costing.cost_of_capture, units.USD / units.tonne)
+        return units.convert(b.cost_of_capture, units.USD_2018 / units.tonne)
