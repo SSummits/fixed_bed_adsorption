@@ -6,7 +6,6 @@ Rotary packed bed/finitevolume.py
 Rotary packed bed/RPB sensitivity runs.ipynb
 temp/
 Rotary packed bed/RPB_notebook copy.ipynb
-*.gz
 Rotary packed bed/asl_io/asl_io.ipynb
 Rotary packed bed/asl_io/example.nl
 Rotary packed bed/asl_io/read.py
@@ -15,3 +14,4 @@ Rotary packed bed/asl_io/unknown.lp
 Rotary packed bed/asl_io/write.py
 Rotary packed bed/json_files/95_PCC_91_RPB_res.sol
 .vscode/settings.json
+/Rotary packed bed/json_files/archive_polish
