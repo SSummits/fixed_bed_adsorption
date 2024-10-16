@@ -173,19 +173,23 @@ def min_energy(b):
 
 for v in design_variables:
     v.unfix()
-m.fs.RPB.ads.CO2_capture.fix(0.667)
+
 
 
 # Make adjustment to initial guesses if needed
-iutil.from_json(m, fname='json_files/95PCC_80RPB.json.gz')
-m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.001268)
+iutil.from_json(m, fname='json_files/98PCC_95RPB.json.gz')
+
+m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.004226)
 m.fs.flue_gas_in.mole_frac_comp[0,"H2O"].fix(0.09)
-m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.001268-0.09)
+m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.004226-0.09)
+m.fs.RPB.ads.CO2_capture.fix(0.99)
+
+m.fs.flue_gas_in.pressure.fix()
 
 
 # Minimize Energy Requirement
-# solver_methods.NEOS_solver(m.fs)
-Solver.solve(m, tee=True)#, symbolic_solver_labels=True)
+solver_methods.NEOS_solver(m.fs)
+# Solver.solve(m, tee=True)#, symbolic_solver_labels=True)
 
 
 # Switch to minimize cost and solve
@@ -193,6 +197,6 @@ m.fs.min_energy.deactivate()
 @m.fs.Objective()
 def min_cost(b):
     return b.costing.LCOC
-# solver_methods.NEOS_solver(m.fs)
+solver_methods.NEOS_solver(m.fs)
 
-# iutil.to_json(m, fname='json_files/97PCC_667RPB.json.gz')
+iutil.to_json(m, fname='json_files/90PCC_99RPB.json.gz')
