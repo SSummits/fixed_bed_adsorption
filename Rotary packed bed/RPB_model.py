@@ -236,7 +236,7 @@ see property package for documentation.}""",
         self.L = Var(
             initialize=(3),
             domain=PositiveReals,
-            bounds=(0.1, 10.001),
+            bounds=(0.1, 40),
             units=units.m,
             doc="Bed Length [m]",
         )
