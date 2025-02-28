@@ -122,6 +122,9 @@ m.fs.RPB.L.fix(16.64)
 m.fs.RPB.ads.theta.fix(0.38)
 m.fs.RPB.des.theta = 1-0.38
 
+# Fix sorbent composition
+m.fs.RPB.sorbent_weight.fix(1)
+
 
 # initialize feed and product blocks
 m.fs.flue_gas_in.initialize()
@@ -147,14 +150,14 @@ optarg = {
 init_points = [1e-5,1e-3,1e-1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]
 # init_points = [1e-5, 0.25, 0.5, 0.75, 1]
 RPB_util.set_bounds(m.fs)
-# m.fs.RPB.initialize(outlvl=idaeslog.DEBUG, optarg=optarg, initialization_points=init_points)
+m.fs.RPB.initialize(outlvl=idaeslog.DEBUG, optarg=optarg, initialization_points=init_points)
 
-iutil.from_json(m, fname='RPB_init_try.json.gz')
+iutil.from_json(m, fname='RPB_init_try2.json.gz')
 # iutil.from_json(m, fname='json_files/archive_polish/90_PCC_80_RPB.json.gz')
 
 # full solve with IPOPT
 Solver = get_solver("ipopt", optarg)
-Solver.solve(m, tee=True).write()
+# Solver.solve(m, tee=True).write()
 
 # build_RPB_costing(m.fs)
 # Solver.solve(m, tee=True)
@@ -183,13 +186,14 @@ for v in design_variables:
     v.unfix()
 
 RPB_util.set_bounds(m.fs)
+# iutil.from_json(m, fname='RPB_init_try2.json.gz')
 
 # for y_co2 in np.linspace(0.004226, 0.04, 15):
 #     m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(y_co2)
 #     m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.09-y_co2)
 #     solver_methods.NEOS_solver(m.fs)
 cap_init = m.fs.RPB.ads.CO2_capture[0]()
-for cap in np.linspace(cap_init, 0.9, 15):
+for cap in np.linspace(cap_init, 0.9, 1):
     m.fs.RPB.ads.CO2_capture.fix(cap)
     solver_methods.NEOS_solver(m.fs)
     print(m.fs.RPB.report_custom())

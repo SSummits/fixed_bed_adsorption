@@ -16,6 +16,7 @@ Rotary Packed Bed Model
 """
 
 # importing libraries
+from xml import dom
 from idaes.logger import NOTSET
 import numpy as np
 import pandas as pd
@@ -74,6 +75,8 @@ from idaes.core.initialization import ModularInitializerBase
 from idaes.models_extra.power_generation.properties import FlueGasParameterBlock
 
 import idaes.logger as idaeslog
+
+from sorbents.mix_sorbents import mix_sorbent_params, mix_sorbent_isotherm, mix_sorbent_adsorption_heat
 
 __author__ = "Ryan Hughes"
 
@@ -165,6 +168,18 @@ class RotaryPackedBedData(UnitModelBlockData):
     )
 
     CONFIG.declare(
+        "mixed_sorbent_list",
+        ConfigValue(
+            default=["Tetraamine"],
+            domain=list,
+            description="list of sorbents in the bed",
+            doc="""List of all the sorbents in the bed to be mixed/layered,
+**default** - ["Tetraamine"]
+**Valid values:** {Tetraamine, Diamine}""",
+        ),
+    )
+
+    CONFIG.declare(
         "property_package",
         ConfigValue(
             default=useDefault,
@@ -191,6 +206,7 @@ see property package for documentation.}""",
         ),
     )
 
+
     def build(self):
         """
         General build method for RPB
@@ -208,11 +224,23 @@ see property package for documentation.}""",
         # call UnitModel.build to build default attributes
         super().build()
 
+        # Add axial set for mixed properties
+        self.z = ContinuousSet(
+            doc="axial dimension [dimensionless]",
+            bounds=(0, 1),
+            initialize=self.config.z_init_points,
+        )
+
         # Add general parameters
         self._add_general_parameters()
 
         # Add sorbent parameters
-        self._add_sorbent_parameters()
+        # self._add_sorbent_parameters()
+        mix_sorbent_params(self, self.CONFIG.mixed_sorbent_list)
+        z_discretizer = TransformationFactory("dae.finite_difference")
+        z_discretizer.apply_to(
+            self, wrt=self.z, nfe=self.config.z_nfe, scheme="BACKWARD"
+        )
 
         # Add expressions for constants
         @self.Expression(doc="gas constant [kJ/mol/K]")
@@ -1262,7 +1290,7 @@ see property package for documentation.}""",
 
         @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="Reynolds number")
         def Re(b, t, z, o):
-            return b.rhog[t, z, o] * b.vel[t, z, o] * self.dp / b.mu_mix[t, z, o]
+            return b.rhog[t, z, o] * b.vel[t, z, o] * self.dp[z] / b.mu_mix[t, z, o]
 
         @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="Schmidt number")
         def Sc(b, t, z, o):
@@ -1296,7 +1324,7 @@ see property package for documentation.}""",
             doc="Gas-solid heat transfer coefficient  equation [kW/m^2/K]",
         )
         def h_gs(b, t, z, o):
-            return b.Nu[t, z, o] * b.k_mix[t, z, o] / self.dp
+            return b.Nu[t, z, o] * b.k_mix[t, z, o] / self.dp[z]
 
         @blk.Expression(
             self.flowsheet().time,
@@ -1305,135 +1333,136 @@ see property package for documentation.}""",
             doc="Gas phase film mass transfer coefficient [m/s]",
         )
         def k_f(b, t, z, o):
-            return b.Sh[t, z, o] * self.DmCO2 / self.dp
+            return b.Sh[t, z, o] * self.DmCO2 / self.dp[z]
 
         # ===================================
 
         # Isotherm Model Equations ===
-        def d_1(T):
-            return self.d_inf_1 * exp(
-                -self.E_1 / (self.R * self.T0) * (self.T0 / T - 1)
-            )
+        mix_sorbent_isotherm(blk, self.CONFIG.mixed_sorbent_list)
+        # def d_1(T):
+        #     return self.d_inf_1 * exp(
+        #         -self.E_1 / (self.R * self.T0) * (self.T0 / T - 1)
+        #     )
 
-        def d_2(T):
-            return self.d_inf_2 * exp(
-                -self.E_2 / (self.R * self.T0) * (self.T0 / T - 1)
-            )
+        # def d_2(T):
+        #     return self.d_inf_2 * exp(
+        #         -self.E_2 / (self.R * self.T0) * (self.T0 / T - 1)
+        #     )
 
-        def d_3(T):
-            return self.d_inf_3 * exp(
-                -self.E_3 / (self.R * self.T0) * (self.T0 / T - 1)
-            )
+        # def d_3(T):
+        #     return self.d_inf_3 * exp(
+        #         -self.E_3 / (self.R * self.T0) * (self.T0 / T - 1)
+        #     )
 
-        def d_4(T):
-            return self.d_inf_4 * exp(
-                -self.E_4 / (self.R * self.T0) * (self.T0 / T - 1)
-            )
+        # def d_4(T):
+        #     return self.d_inf_4 * exp(
+        #         -self.E_4 / (self.R * self.T0) * (self.T0 / T - 1)
+        #     )
 
-        def sigma_1(T):
-            return self.X_11 * exp(self.X_21 * (1 / self.T0 - 1 / T))
+        # def sigma_1(T):
+        #     return self.X_11 * exp(self.X_21 * (1 / self.T0 - 1 / T))
 
-        def sigma_2(T):
-            return self.X_12 * exp(self.X_22 * (1 / self.T0 - 1 / T))
+        # def sigma_2(T):
+        #     return self.X_12 * exp(self.X_22 * (1 / self.T0 - 1 / T))
 
-        def ln_pstep1(T):
-            return self.ln_P0_1 + (-self.H_step_1 / self.R * (1 / self.T0 - 1 / T))
+        # def ln_pstep1(T):
+        #     return self.ln_P0_1 + (-self.H_step_1 / self.R * (1 / self.T0 - 1 / T))
 
-        def ln_pstep2(T):
-            return self.ln_P0_2 + (-self.H_step_2 / self.R * (1 / self.T0 - 1 / T))
+        # def ln_pstep2(T):
+        #     return self.ln_P0_2 + (-self.H_step_2 / self.R * (1 / self.T0 - 1 / T))
 
-        def q_star_1(P, T):
-            return self.q_inf_1 * d_1(T) * P / (1 + d_1(T) * P)
+        # def q_star_1(P, T):
+        #     return self.q_inf_1 * d_1(T) * P / (1 + d_1(T) * P)
 
-        def q_star_2(P, T):
-            return self.q_inf_2 * d_2(T) * P / (1 + d_2(T) * P)
+        # def q_star_2(P, T):
+        #     return self.q_inf_2 * d_2(T) * P / (1 + d_2(T) * P)
 
-        def q_star_3(P, T):
-            return self.q_inf_3 * d_3(T) * P / (1 + d_3(T) * P) + d_4(T) * P
+        # def q_star_3(P, T):
+        #     return self.q_inf_3 * d_3(T) * P / (1 + d_3(T) * P) + d_4(T) * P
 
-        @blk.Expression(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
-        )
-        def P_surf(b, t, z, o):
-            # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
-            eps = 1e-8
-            Cs_r_smooth_max = 0.5 * (
-                b.Cs_r[t, z, o]
-                + (b.Cs_r[t, z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
-            )
-            return Cs_r_smooth_max * self.Rg * b.Ts[t, z, o]
-            # return smooth_max(0,m.Cs_r[z, o]) * self.Rg * m.Ts[z, o] #idaes smooth_max doesn't carry units through
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
+        # )
+        # def P_surf(b, t, z, o):
+        #     # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
+        #     eps = 1e-8
+        #     Cs_r_smooth_max = 0.5 * (
+        #         b.Cs_r[t, z, o]
+        #         + (b.Cs_r[t, z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
+        #     )
+        #     return Cs_r_smooth_max * self.Rg * b.Ts[t, z, o]
+        #     # return smooth_max(0,m.Cs_r[z, o]) * self.Rg * m.Ts[z, o] #idaes smooth_max doesn't carry units through
 
-        @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="log(Psurf)")
-        def ln_Psurf(b, t, z, o):
-            return log(b.P_surf[t, z, o] / units.bar)  # must make dimensionless
+        # @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="log(Psurf)")
+        # def ln_Psurf(b, t, z, o):
+        #     return log(b.P_surf[t, z, o] / units.bar)  # must make dimensionless
 
-        @blk.Expression(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma",
-        )
-        def iso_w_term1(b, t, z, o):
-            return (b.ln_Psurf[t, z, o] - ln_pstep1(b.Ts[t, z, o])) / sigma_1(
-                b.Ts[t, z, o]
-            )
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma",
+        # )
+        # def iso_w_term1(b, t, z, o):
+        #     return (b.ln_Psurf[t, z, o] - ln_pstep1(b.Ts[t, z, o])) / sigma_1(
+        #         b.Ts[t, z, o]
+        #     )
 
-        @blk.Expression(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma",
-        )
-        def iso_w_term2(b, t, z, o):
-            return (b.ln_Psurf[t, z, o] - ln_pstep2(b.Ts[t, z, o])) / sigma_2(
-                b.Ts[t, z, o]
-            )
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma",
+        # )
+        # def iso_w_term2(b, t, z, o):
+        #     return (b.ln_Psurf[t, z, o] - ln_pstep2(b.Ts[t, z, o])) / sigma_2(
+        #         b.Ts[t, z, o]
+        #     )
 
-        @blk.Expression(
-            self.flowsheet().time, blk.z, blk.o, doc="log of weighting function 1"
-        )
-        def ln_w1(b, t, z, o):
-            # return gamma_1*log(exp(m.iso_w_term1[z,o])/(1+exp(m.iso_w_term1[z,o])))
-            # return gamma_1*(log(exp(m.iso_w_term1[z,o])) - log(1+exp(m.iso_w_term1[z,o])))
-            return self.gamma_1 * (
-                b.iso_w_term1[t, z, o] - log(1 + exp(b.iso_w_term1[t, z, o]))
-            )
+        # @blk.Expression(
+        #     self.flowsheet().time, blk.z, blk.o, doc="log of weighting function 1"
+        # )
+        # def ln_w1(b, t, z, o):
+        #     # return gamma_1*log(exp(m.iso_w_term1[z,o])/(1+exp(m.iso_w_term1[z,o])))
+        #     # return gamma_1*(log(exp(m.iso_w_term1[z,o])) - log(1+exp(m.iso_w_term1[z,o])))
+        #     return self.gamma_1 * (
+        #         b.iso_w_term1[t, z, o] - log(1 + exp(b.iso_w_term1[t, z, o]))
+        #     )
 
-        @blk.Expression(
-            self.flowsheet().time, blk.z, blk.o, doc="log of weighting function 2"
-        )
-        def ln_w2(b, t, z, o):
-            # return gamma_2*log(exp(m.iso_w_term2[z,o])/(1+exp(m.iso_w_term2[z,o])))
-            # return gamma_2*(log(exp(m.iso_w_term2[z,o])) - log(1+exp(m.iso_w_term2[z,o])))
-            return self.gamma_2 * (
-                b.iso_w_term2[t, z, o] - log(1 + exp(b.iso_w_term2[t, z, o]))
-            )
+        # @blk.Expression(
+        #     self.flowsheet().time, blk.z, blk.o, doc="log of weighting function 2"
+        # )
+        # def ln_w2(b, t, z, o):
+        #     # return gamma_2*log(exp(m.iso_w_term2[z,o])/(1+exp(m.iso_w_term2[z,o])))
+        #     # return gamma_2*(log(exp(m.iso_w_term2[z,o])) - log(1+exp(m.iso_w_term2[z,o])))
+        #     return self.gamma_2 * (
+        #         b.iso_w_term2[t, z, o] - log(1 + exp(b.iso_w_term2[t, z, o]))
+        #     )
 
-        @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="weighting function 1")
-        def iso_w1(b, t, z, o):
-            return exp(b.ln_w1[t, z, o])
+        # @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="weighting function 1")
+        # def iso_w1(b, t, z, o):
+        #     return exp(b.ln_w1[t, z, o])
 
-        @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="weighting function 2")
-        def iso_w2(b, t, z, o):
-            return exp(b.ln_w2[t, z, o])
+        # @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="weighting function 2")
+        # def iso_w2(b, t, z, o):
+        #     return exp(b.ln_w2[t, z, o])
 
-        @blk.Expression(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="isotherm loading expression [mol/kg]",
-        )
-        def qCO2_eq(b, t, z, o):
-            return (
-                (1 - b.iso_w1[t, z, o]) * q_star_1(b.P_surf[t, z, o], b.Ts[t, z, o])
-                + (b.iso_w1[t, z, o] - b.iso_w2[t, z, o])
-                * q_star_2(b.P_surf[t, z, o], b.Ts[t, z, o])
-                + b.iso_w2[t, z, o] * q_star_3(b.P_surf[t, z, o], b.Ts[t, z, o])
-            )
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="isotherm loading expression [mol/kg]",
+        # )
+        # def qCO2_eq(b, t, z, o):
+        #     return (
+        #         (1 - b.iso_w1[t, z, o]) * q_star_1(b.P_surf[t, z, o], b.Ts[t, z, o])
+        #         + (b.iso_w1[t, z, o] - b.iso_w2[t, z, o])
+        #         * q_star_2(b.P_surf[t, z, o], b.Ts[t, z, o])
+        #         + b.iso_w2[t, z, o] * q_star_3(b.P_surf[t, z, o], b.Ts[t, z, o])
+        #     )
 
         # ============================
 
@@ -1445,31 +1474,32 @@ see property package for documentation.}""",
             doc="effective diffusion in solids [m^2/s]",
         )
         def Deff(b, t, z, o):
-            return self.C1 * b.Ts[t, z, o] ** 0.5
+            return self.C1[z] * b.Ts[t, z, o] ** 0.5
 
         @blk.Expression(
             self.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
         )
         def k_I(b, t, z, o):
             return (
-                b.R_MT_coeff * (15 * self.ep * b.Deff[t, z, o] / self.rp**2)
+                b.R_MT_coeff * (15 * self.ep[z] * b.Deff[t, z, o] / self.rp[z]**2)
                 + (1 - b.R_MT_coeff) * 0.001 / units.s
             )
 
         # Heat of adsorption ==============================================================
-        @blk.Expression(
-            self.flowsheet().time, blk.z, blk.o, doc="heat of adsorption [kJ/mol]"
-        )
-        def delH_CO2(b, t, z, o):
-            return -(
-                self.delH_1
-                - (self.delH_1 - self.delH_2)
-                * exp(self.delH_a1 * (b.qCO2_eq[t, z, o] - self.delH_b1))
-                / (1 + exp(self.delH_a1 * (b.qCO2_eq[t, z, o] - self.delH_b1)))
-                - (self.delH_2 - self.delH_3)
-                * exp(self.delH_a2 * (b.qCO2_eq[t, z, o] - self.delH_b2))
-                / (1 + exp(self.delH_a2 * (b.qCO2_eq[t, z, o] - self.delH_b2)))
-            )
+        mix_sorbent_adsorption_heat(blk, self.CONFIG.mixed_sorbent_list)
+        # @blk.Expression(
+        #     self.flowsheet().time, blk.z, blk.o, doc="heat of adsorption [kJ/mol]"
+        # )
+        # def delH_CO2(b, t, z, o):
+        #     return -(
+        #         self.delH_1
+        #         - (self.delH_1 - self.delH_2)
+        #         * exp(self.delH_a1 * (b.qCO2_eq[t, z, o] - self.delH_b1))
+        #         / (1 + exp(self.delH_a1 * (b.qCO2_eq[t, z, o] - self.delH_b1)))
+        #         - (self.delH_2 - self.delH_3)
+        #         * exp(self.delH_a2 * (b.qCO2_eq[t, z, o] - self.delH_b2))
+        #         / (1 + exp(self.delH_a2 * (b.qCO2_eq[t, z, o] - self.delH_b2)))
+        #     )
 
         # Mass/heat transfer rates =========================================================
         # flux limiter equation ===
@@ -1514,8 +1544,8 @@ see property package for documentation.}""",
                     == flux_lim
                     * b.k_I[t, z, o]
                     * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
-                    * (1 - self.eb)
-                    * self.rho_sol
+                    * (1 - self.eb[z])
+                    * self.rho_sol[z]
                 )
             else:
                 return b.Rs_CO2[t, z, o] == 0 * units.mol / units.s / units.m**3
@@ -1552,7 +1582,7 @@ see property package for documentation.}""",
 
             """
             return b.Cs_r[t, z, o] == b.C[t, z, o, "CO2"] - b.Rg_CO2[t, z, o] / (
-                b.k_f[t, z, o] * self.a_s
+                b.k_f[t, z, o] * self.a_s[z]
             )  # option 2b
 
         # ========================
@@ -1580,7 +1610,7 @@ see property package for documentation.}""",
             if 0 < z < 1 and 0 < o < 1:  # no heat transfer at boundaries
                 return b.Q_gs[t, z, o] == flux_lim * b.R_HT_gs * b.h_gs[
                     t, z, o
-                ] * self.a_s * (b.Ts[t, z, o] - b.Tg[t, z, o])
+                ] * self.a_s[z] * (b.Ts[t, z, o] - b.Tg[t, z, o])
             else:
                 return b.Q_gs[t, z, o] == 0
 
@@ -1732,7 +1762,7 @@ see property package for documentation.}""",
         )
         def pde_solidMB(b, t, z, o):
             if 0 < o < 1:
-                return (1 - self.eb) * self.rho_sol * b.dqCO2do[t, z, o] * self.w[
+                return (1 - self.eb[z]) * self.rho_sol[z] * b.dqCO2do[t, z, o] * self.w[
                     t
                 ] == (b.Rs_CO2[t, z, o] * b.R_MT_solid) * (
                     (2 * const.pi * units.radians) * b.theta
@@ -1778,7 +1808,7 @@ see property package for documentation.}""",
         )
         def pde_solidEB(b, t, z, o):
             if 0 < o < 1:
-                return (1 - self.eb) * self.rho_sol * self.Cp_sol * self.w[t] * b.dTsdo[
+                return (1 - self.eb[z]) * self.rho_sol[z] * self.Cp_sol[z] * self.w[t] * b.dTsdo[
                     t, z, o
                 ] == (-b.Q_gs[t, z, o] - b.Q_delH[t, z, o]) * (
                     (2 * const.pi * units.radians) * b.theta
@@ -1794,14 +1824,14 @@ see property package for documentation.}""",
         def pde_Ergun(b, t, z, o):
             # Pa_to_bar = 1e-5 * units.bar / units.Pa
             RHS_ = b.R_dP * -(
-                (150 * b.mu_mix[t, z, o] * ((1 - self.eb) ** 2) / (self.eb**3))
-                / self.dp**2
+                (150 * b.mu_mix[t, z, o] * ((1 - self.eb[z]) ** 2) / (self.eb[z]**3))
+                / self.dp[z]**2
                 * b.vel[t, z, o]
                 + 1.75
-                * (1 - self.eb)
-                / self.eb**3
+                * (1 - self.eb[z])
+                / self.eb[z]**3
                 * b.rhog[t, z, o]
-                / self.dp
+                / self.dp[z]
                 * b.vel[t, z, o] ** 2
             )
             RHS = units.convert(RHS_, to_units=units.bar / units.meter)
@@ -1967,11 +1997,11 @@ see property package for documentation.}""",
 
         @blk.Expression(doc="total solids volume [m^3]")
         def vol_solids_tot(b):
-            return b.vol_tot * (1 - self.eb)
+            return b.vol_tot * (1 - np.average(self.eb))
 
         @blk.Expression(doc="total solids mass [kg]")
         def mass_solids_tot(b):
-            return b.vol_solids_tot * self.rho_sol
+            return b.vol_solids_tot * np.average(self.rho_sol)
 
         @blk.Expression(self.flowsheet().time, doc="total solids flow [kg/s]")
         def flow_solids_tot(b, t):
