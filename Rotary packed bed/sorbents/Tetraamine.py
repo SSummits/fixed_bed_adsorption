@@ -4,7 +4,7 @@ def add_tetraamine_parameters(RPB):
     RPB.TA = Block()
     TA = RPB.TA
 
-    TA.eb = Param(initialize=(0.68), doc="bed voidage")
+    TA.eb = Param(initialize=(0.73), doc="bed voidage")
     TA.ep = Param(initialize=(0.68), doc="particle porosity")
     TA.dp = Param(
         initialize=(0.000525), units=units.m, doc="particle diameter [m]"
