@@ -1,4 +1,4 @@
-from pyomo.environ import Param, Block, exp, log, units
+from pyomo.environ import Var, Param, Block, exp, log, units, Reals, NonNegativeReals
 
 def add_tetraamine_parameters(RPB):
     RPB.TA = Block()
@@ -147,11 +147,32 @@ def add_tetraamine_parameters(RPB):
         doc="heat of adsorption parameter",
     )
 
-def add_tetraamine_isotherm(blk):
+def add_tetraamine_isotherm(blk, initial_guesses):
     RPB = blk.parent_block()
     TA_param = RPB.TA
     blk.TA = Block()
     TA = blk.TA
+
+    if initial_guesses == "adsorption":
+        qCO2_in_init = 1
+        Ts_in_init = 100 + 273
+    elif initial_guesses == "desorption":
+        qCO2_in_init = 2.5
+        Ts_in_init = 110 + 273
+    else:
+        qCO2_in_init = 1
+        Ts_in_init = 100 + 273
+
+    blk.TA.qCO2 = Var(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        initialize=qCO2_in_init,
+        domain=NonNegativeReals,
+        bounds=(0, 5),
+        doc="CO2 loading [mol/kg]",
+        units=units.mol / units.kg,
+    )
 
     def d_1(T):
         return TA_param.d_inf_1 * exp(
@@ -194,25 +215,25 @@ def add_tetraamine_isotherm(blk):
     def q_star_3(P, T):
         return TA_param.q_inf_3 * d_3(T) * P / (1 + d_3(T) * P) + d_4(T) * P
 
-    @TA.Expression(
-        RPB.flowsheet().time,
-        blk.z,
-        blk.o,
-        doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
-    )
-    def P_surf(b, t, z, o):
-        # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
-        eps = 1e-8
-        Cs_r_smooth_max = 0.5 * (
-            blk.Cs_r[t, z, o]
-            + (blk.Cs_r[t, z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
-        )
-        return Cs_r_smooth_max * RPB.Rg * blk.Ts[t, z, o]
-        # return smooth_max(0,m.Cs_r[z, o]) * RPB.Rg * m.Ts[z, o] #idaes smooth_max doesn't carry units through
+    # @TA.Expression(
+    #     RPB.flowsheet().time,
+    #     blk.z,
+    #     blk.o,
+    #     doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
+    # )
+    # def P_surf(b, t, z, o):
+    #     # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
+    #     eps = 1e-8
+    #     Cs_r_smooth_max = 0.5 * (
+    #         blk.Cs_r[t, z, o]
+    #         + (blk.Cs_r[t, z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
+    #     )
+    #     return Cs_r_smooth_max * RPB.Rg * blk.Ts[t, z, o]
+    #     # return smooth_max(0,m.Cs_r[z, o]) * RPB.Rg * m.Ts[z, o] #idaes smooth_max doesn't carry units through
 
-    @TA.Expression(RPB.flowsheet().time, blk.z, blk.o, doc="log(Psurf)")
-    def ln_Psurf(b, t, z, o):
-        return log(b.P_surf[t, z, o] / units.bar)  # must make dimensionless
+    # @TA.Expression(RPB.flowsheet().time, blk.z, blk.o, doc="log(Psurf)")
+    # def ln_Psurf(b, t, z, o):
+    #     return log(b.P_surf[t, z, o] / units.bar)  # must make dimensionless
 
     @TA.Expression(
         RPB.flowsheet().time,
@@ -221,7 +242,7 @@ def add_tetraamine_isotherm(blk):
         doc="weighting function term1: (ln_Psurf-ln_Pstep)/sigma",
     )
     def iso_w_term1(b, t, z, o):
-        return (b.ln_Psurf[t, z, o] - ln_pstep1(blk.Ts[t, z, o])) / sigma_1(
+        return (blk.ln_Psurf[t, z, o] - ln_pstep1(blk.Ts[t, z, o])) / sigma_1(
             blk.Ts[t, z, o]
         )
 
@@ -232,7 +253,7 @@ def add_tetraamine_isotherm(blk):
         doc="weighting function term2: (ln_Psurf-ln_Pstep)/sigma",
     )
     def iso_w_term2(b, t, z, o):
-        return (b.ln_Psurf[t, z, o] - ln_pstep2(blk.Ts[t, z, o])) / sigma_2(
+        return (blk.ln_Psurf[t, z, o] - ln_pstep2(blk.Ts[t, z, o])) / sigma_2(
             blk.Ts[t, z, o]
         )
 
@@ -272,11 +293,56 @@ def add_tetraamine_isotherm(blk):
     )
     def qCO2_eq(b, t, z, o):
         return (
-            (1 - b.iso_w1[t, z, o]) * q_star_1(b.P_surf[t, z, o], blk.Ts[t, z, o])
+            (1 - b.iso_w1[t, z, o]) * q_star_1(blk.P_surf[t, z, o], blk.Ts[t, z, o])
             + (b.iso_w1[t, z, o] - b.iso_w2[t, z, o])
-            * q_star_2(b.P_surf[t, z, o], blk.Ts[t, z, o])
-            + b.iso_w2[t, z, o] * q_star_3(b.P_surf[t, z, o], blk.Ts[t, z, o])
+            * q_star_2(blk.P_surf[t, z, o], blk.Ts[t, z, o])
+            + b.iso_w2[t, z, o] * q_star_3(blk.P_surf[t, z, o], blk.Ts[t, z, o])
         )
+    
+
+    a1_FL = 0.02
+    a2_FL = 0.98
+    sig_FL = 0.01
+
+    def FL(z):
+        def FL_1(z):
+            return exp((z - a1_FL) / sig_FL) / (1 + exp((z - a1_FL) / sig_FL))
+
+        def FL_2(z):
+            return exp((z - a2_FL) / sig_FL) / (1 + exp((z - a2_FL) / sig_FL))
+
+        return FL_1(z) - FL_2(z)
+
+    blk.TA.Rs_CO2 = Var(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        initialize=0,
+        domain=Reals,
+        units=units.mol / units.s / units.m**3,
+        doc="solids mass transfer rate [mol/s/m^3 bed]",
+    )
+
+    @blk.TA.Constraint(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        doc="solids mass transfer rate [mol/s/m^3 bed]",
+    )
+    def Rs_CO2_eq(b, t, z, o):
+        flux_lim = FL(z)
+
+        if 0 < z < 1 and 0 < o < 1:
+            return (
+                b.Rs_CO2[t, z, o]
+                == flux_lim
+                * blk.k_I[t, z, o]
+                * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
+                * (1 - RPB.eb[z])
+                * TA_param.rho_sol * RPB.sorbent_weight[z, 'TA']
+            )
+        else:
+            return b.Rs_CO2[t, z, o] == 0 * units.mol / units.s / units.m**3
 
 def add_tetraamine_adsortion_heat(TA):
     RPB = TA.parent_block().parent_block()
@@ -295,3 +361,4 @@ def add_tetraamine_adsortion_heat(TA):
             * exp(TA_param.delH_a2 * (b.qCO2_eq[t, z, o] - TA_param.delH_b2))
             / (1 + exp(TA_param.delH_a2 * (b.qCO2_eq[t, z, o] - TA_param.delH_b2)))
         )
+        

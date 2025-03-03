@@ -73,6 +73,7 @@ m.fs.RPB = RotaryPackedBed(
     property_package = m.fs.gas_props,
     z_init_points = (0.01,0.99),
     o_init_points = (0.01,0.99),
+    mixed_sorbent_list = ['Tetraamine', 'Diamine'],
 )
 
 # increased number of discretization points, lower mass balance error

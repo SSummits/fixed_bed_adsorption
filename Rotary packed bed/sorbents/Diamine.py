@@ -1,4 +1,4 @@
-from pyomo.environ import Param, Block, exp, log, units
+from pyomo.environ import Var, Param, Block, exp, log, units, Reals, NonNegativeReals
 
 def add_diamine_parameters(RPB):
     RPB.DA = Block()
@@ -72,6 +72,18 @@ def add_diamine_parameters(RPB):
     DA.K_d = Param(
         initialize=2.84e4, units=units.K, doc="isotherm parameter"
     )
+    DA.k_chem_0 = Param(
+        initialize=0.0136, units=1/units.s, doc="mass transfer parameter"
+    )
+    DA.E_chem = Param(
+        initialize=23.21, units=units.kJ/units.mol, doc="mass transfer parameter"
+    )
+    DA.k_phys_0 = Param(
+        initialize=0.0823, units=1/units.s, doc="mass transfer parameter"
+    )
+    DA.E_phys = Param(
+        initialize=7.18, units=units.kJ/units.mol, doc="mass transfer parameter"
+    )
 
     # Mass transfer parameters
     DA.C1 = Param(
@@ -80,11 +92,33 @@ def add_diamine_parameters(RPB):
         doc="lumped MT parameter [m^2/K^0.5/s]",
     )
 
-def add_diamine_isotherm(blk):
+def add_diamine_isotherm(blk, initial_guesses):
     RPB = blk.parent_block()
     DA_param = RPB.DA
     blk.DA = Block()
     DA = blk.DA
+
+    if initial_guesses == "adsorption":
+        qCO2_in_init = 1
+        Ts_in_init = 100 + 273
+    elif initial_guesses == "desorption":
+        qCO2_in_init = 2.5
+        Ts_in_init = 110 + 273
+    else:
+        qCO2_in_init = 1
+        Ts_in_init = 100 + 273
+
+    blk.DA.qCO2 = Var(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        ['chem', 'phys'],
+        initialize=qCO2_in_init,
+        domain=NonNegativeReals,
+        bounds=(0, 5),
+        doc="CO2 loading [mol/kg]",
+        units=units.mol / units.kg,
+    )
 
     def b_chem(T):
         return DA_param.b_chem_0 * exp(
@@ -110,3 +144,91 @@ def add_diamine_isotherm(blk):
         return DA_param.n_chem_0 * exp(
             (DA_param.E_n / RPB.R / DA_param.T0)*(DA_param.T0/T - 1)
         )
+    
+    def q_star_chem(T,P):
+        return q_chem_inf(T) * ((b_chem(T) * P)**(1/n_chem(T)) / (1 + (b_chem(T) * P)**(1/n_chem(T))))
+    def q_star_phys(T,P):
+        return q_phys_inf(T) * ((b_phys(T) * P)**(1/DA_param.n_phys) / (1 + (b_phys(T) * P)**(1/DA_param.n_phys))) 
+    
+    @DA.Expression(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        doc="isotherm loading expression [mol/kg]",
+    )
+    def qCO2_eq(b, t, z, o):
+        return q_star_chem(blk.Ts[t, z, o], blk.P_surf[t, z, o]) + q_star_phys(blk.Ts[t, z, o], blk.P_surf[t, z, o])
+    
+
+    a1_FL = 0.02
+    a2_FL = 0.98
+    sig_FL = 0.01
+
+    def FL(z):
+        def FL_1(z):
+            return exp((z - a1_FL) / sig_FL) / (1 + exp((z - a1_FL) / sig_FL))
+
+        def FL_2(z):
+            return exp((z - a2_FL) / sig_FL) / (1 + exp((z - a2_FL) / sig_FL))
+
+        return FL_1(z) - FL_2(z)
+    
+    def k_chem(T):
+        return DA_param.k_chem_0 * exp(
+            -DA_param.E_chem / RPB.R / DA_param.T0 * (DA_param.T0 / T - 1)
+        )
+    def k_phys(T):
+        return DA_param.k_phys_0 * exp(
+            -DA_param.E_phys / RPB.R / DA_param.T0 * (DA_param.T0 / T - 1)
+        )
+
+    blk.DA.Rs_CO2 = Var(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        initialize=0,
+        domain=Reals,
+        units=units.mol / units.s / units.m**3,
+        doc="solids mass transfer rate [mol/s/m^3 bed]",
+    )
+
+    @blk.DA.Constraint(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        doc="solids mass transfer rate [mol/s/m^3 bed]",
+    )
+    def Rs_CO2_eq(b, t, z, o):
+        flux_lim = FL(z)
+
+        if 0 < z < 1 and 0 < o < 1:
+            return (
+                b.Rs_CO2[t, z, o]
+                == flux_lim
+                * (k_chem(b.Ts[t, z, o]) * (q_star_chem(blk.Ts[t, z, o], blk.P_surf[t, z, o]) - b.qCO2[t, z, o, 'chem'])
+                   + k_phys(b.Ts[t, z, o]) * (q_star_phys(blk.Ts[t, z, o], blk.P_surf[t, z, o]) - b.qCO2[t, z, o, 'phys'])
+                )
+                * (1 - RPB.eb[z])
+                * DA_param.rho_sol * RPB.sorbent_weight[z, 'DA']
+            )
+        else:
+            return b.Rs_CO2[t, z, o] == 0 * units.mol / units.s / units.m**3
+    
+def add_diamine_adsortion_heat(DA):
+    RPB = DA.parent_block().parent_block()
+    blk = DA.parent_block()
+    DA_param = RPB.DA
+    @DA.Expression(
+        RPB.flowsheet().time, blk.z, blk.o, doc="heat of adsorption [kJ/mol]"
+    )
+    def delH_CO2(b, t, z, o):
+        return -65 * units.kJ / units.mol
+        # return -(
+        #     TA_param.delH_1
+        #     - (TA_param.delH_1 - TA_param.delH_2)
+        #     * exp(TA_param.delH_a1 * (b.qCO2_eq[t, z, o] - TA_param.delH_b1))
+        #     / (1 + exp(TA_param.delH_a1 * (b.qCO2_eq[t, z, o] - TA_param.delH_b1)))
+        #     - (TA_param.delH_2 - TA_param.delH_3)
+        #     * exp(TA_param.delH_a2 * (b.qCO2_eq[t, z, o] - TA_param.delH_b2))
+        #     / (1 + exp(TA_param.delH_a2 * (b.qCO2_eq[t, z, o] - TA_param.delH_b2)))
+        # )

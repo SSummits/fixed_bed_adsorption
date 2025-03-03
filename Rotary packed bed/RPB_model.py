@@ -1338,7 +1338,57 @@ see property package for documentation.}""",
         # ===================================
 
         # Isotherm Model Equations ===
-        mix_sorbent_isotherm(blk, self.CONFIG.mixed_sorbent_list)
+        @blk.Expression(
+            self.flowsheet().time,
+            blk.z,
+            blk.o,
+            doc="Partial pressure of CO2 at particle surface [bar] (ideal gas law)",
+        )
+        def P_surf(b, t, z, o):
+            # smooth max operator: max(0, x) = 0.5*(x + (x^2 + eps)^0.5)
+            eps = 1e-8
+            Cs_r_smooth_max = 0.5 * (
+                b.Cs_r[t, z, o]
+                + (b.Cs_r[t, z, o] ** 2 + eps * (units.mol / units.m**3) ** 2) ** 0.5
+            )
+            return Cs_r_smooth_max * self.Rg * b.Ts[t, z, o]
+            # return smooth_max(0,m.Cs_r[z, o]) * self.Rg * m.Ts[z, o] #idaes smooth_max doesn't carry units through
+
+        @blk.Expression(self.flowsheet().time, blk.z, blk.o, doc="log(Psurf)")
+        def ln_Psurf(b, t, z, o):
+            return log(b.P_surf[t, z, o] / units.bar)  # must make dimensionless
+        
+        blk.Rs_CO2 = Var(
+            self.flowsheet().time,
+            blk.z,
+            blk.o,
+            initialize=0,
+            domain=Reals,
+            units=units.mol / units.s / units.m**3,
+            doc="solids mass transfer rate [mol/s/m^3 bed]",
+        )
+
+        @blk.Expression(
+            self.flowsheet().time,
+            blk.z,
+            blk.o,
+            doc="effective diffusion in solids [m^2/s]",
+        )
+        def Deff(b, t, z, o):
+            return self.C1[z] * b.Ts[t, z, o] ** 0.5
+
+        @blk.Expression(
+            self.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
+        )
+        def k_I(b, t, z, o):
+            return (
+                b.R_MT_coeff * (15 * self.ep[z] * b.Deff[t, z, o] / self.rp[z]**2)
+                + (1 - b.R_MT_coeff) * 0.001 / units.s
+            )
+        
+
+        mix_sorbent_isotherm(blk, self.CONFIG.mixed_sorbent_list, initial_guesses)
+
         # def d_1(T):
         #     return self.d_inf_1 * exp(
         #         -self.E_1 / (self.R * self.T0) * (self.T0 / T - 1)
@@ -1467,23 +1517,23 @@ see property package for documentation.}""",
         # ============================
 
         # Mass transfer coefficient =======================================================
-        @blk.Expression(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="effective diffusion in solids [m^2/s]",
-        )
-        def Deff(b, t, z, o):
-            return self.C1[z] * b.Ts[t, z, o] ** 0.5
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="effective diffusion in solids [m^2/s]",
+        # )
+        # def Deff(b, t, z, o):
+        #     return self.C1[z] * b.Ts[t, z, o] ** 0.5
 
-        @blk.Expression(
-            self.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
-        )
-        def k_I(b, t, z, o):
-            return (
-                b.R_MT_coeff * (15 * self.ep[z] * b.Deff[t, z, o] / self.rp[z]**2)
-                + (1 - b.R_MT_coeff) * 0.001 / units.s
-            )
+        # @blk.Expression(
+        #     self.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
+        # )
+        # def k_I(b, t, z, o):
+        #     return (
+        #         b.R_MT_coeff * (15 * self.ep[z] * b.Deff[t, z, o] / self.rp[z]**2)
+        #         + (1 - b.R_MT_coeff) * 0.001 / units.s
+        #     )
 
         # Heat of adsorption ==============================================================
         mix_sorbent_adsorption_heat(blk, self.CONFIG.mixed_sorbent_list)
@@ -1519,36 +1569,36 @@ see property package for documentation.}""",
         # ========================
 
         # Mass Transfer Rates ===
-        blk.Rs_CO2 = Var(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            initialize=0,
-            domain=Reals,
-            units=units.mol / units.s / units.m**3,
-            doc="solids mass transfer rate [mol/s/m^3 bed]",
-        )
+        # blk.Rs_CO2 = Var(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     initialize=0,
+        #     domain=Reals,
+        #     units=units.mol / units.s / units.m**3,
+        #     doc="solids mass transfer rate [mol/s/m^3 bed]",
+        # )
 
-        @blk.Constraint(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="solids mass transfer rate [mol/s/m^3 bed]",
-        )
-        def Rs_CO2_eq(b, t, z, o):
-            flux_lim = FL(z)
+        # @blk.Constraint(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="solids mass transfer rate [mol/s/m^3 bed]",
+        # )
+        # def Rs_CO2_eq(b, t, z, o):
+        #     flux_lim = FL(z)
 
-            if 0 < z < 1 and 0 < o < 1:
-                return (
-                    b.Rs_CO2[t, z, o]
-                    == flux_lim
-                    * b.k_I[t, z, o]
-                    * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
-                    * (1 - self.eb[z])
-                    * self.rho_sol[z]
-                )
-            else:
-                return b.Rs_CO2[t, z, o] == 0 * units.mol / units.s / units.m**3
+        #     if 0 < z < 1 and 0 < o < 1:
+        #         return (
+        #             b.Rs_CO2[t, z, o]
+        #             == flux_lim
+        #             * b.k_I[t, z, o]
+        #             * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
+        #             * (1 - self.eb[z])
+        #             * self.rho_sol[z]
+        #         )
+        #     else:
+        #         return b.Rs_CO2[t, z, o] == 0 * units.mol / units.s / units.m**3
 
         @blk.Expression(
             self.flowsheet().time,
@@ -2245,7 +2295,7 @@ see property package for documentation.}""",
                         iscale.set_scaling_factor(blk.Q_delH[t, z, o], 0.01)
                         # iscale.set_scaling_factor(blk.Q_delH_eq[t, z, o], 0.01)
                         iscale.set_scaling_factor(blk.Rs_CO2[t, z, o], 0.5)
-                        iscale.set_scaling_factor(blk.Rs_CO2_eq[t, z, o], 1)
+                        # iscale.set_scaling_factor(blk.Rs_CO2_eq[t, z, o], 1) # TODO: Update scaling for sorbent blocks
                         iscale.set_scaling_factor(blk.temperature[t, z, o], 1e2)
 
                     if blk.CONFIG.gas_flow_direction == "forward":
