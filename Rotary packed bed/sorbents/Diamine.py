@@ -1,4 +1,5 @@
 from pyomo.environ import Var, Param, Block, exp, log, units, Reals, NonNegativeReals
+from torch import P
 
 def add_diamine_parameters(RPB):
     RPB.DA = Block()
@@ -214,13 +215,15 @@ def add_diamine_isotherm(blk, initial_guesses):
         blk.z,
         blk.o,
         ['chem', 'phys'],
-        doc="Mass transfer coefficient equation for chemical adsorption"
+        doc="Mass transfer coefficient equation for chemical and physical adsorption"
     )
-    def k_0c_eqn(b, t, z, o, i):
+    def k_0_eqn(b, t, z, o, i):
         if i == 'chem':
             k = k_chem(b.Ts[t, z, o])
         elif i == 'phys':
             k = k_phys(b.Ts[t, z, o])
+        
+        return k == b.k_0[t, z, o, i] * (k / b.k_I[t, z, o] + 1)
 
     blk.DA.Rs_CO2 = Var(
         RPB.flowsheet().time,
@@ -242,6 +245,8 @@ def add_diamine_isotherm(blk, initial_guesses):
         flux_lim = FL(z)
 
         if 0 < z < 1 and 0 < o < 1:
+            Ts = blk.Ts[t, z, o]
+            P = blk.P_surf[t, z, o]
             return (
                 b.Rs_CO2[t, z, o]
                 == flux_lim
