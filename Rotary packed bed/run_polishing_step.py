@@ -124,7 +124,13 @@ m.fs.RPB.ads.theta.fix(0.38)
 m.fs.RPB.des.theta = 1-0.38
 
 # Fix sorbent composition
-m.fs.RPB.sorbent_weight.fix(1)
+for z in m.fs.RPB.z:
+    if z < 0.5:
+        m.fs.RPB.sorbent_weight[z, 'TA'].fix(1e-5)
+        m.fs.RPB.sorbent_weight[z, 'DA'].fix(1)
+    else:
+        m.fs.RPB.sorbent_weight[z, 'TA'].fix(1)
+        m.fs.RPB.sorbent_weight[z, 'DA'].fix(1e-5)
 
 
 # initialize feed and product blocks

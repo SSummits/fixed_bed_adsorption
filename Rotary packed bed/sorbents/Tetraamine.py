@@ -1,4 +1,5 @@
-from pyomo.environ import Var, Param, Block, exp, log, units, Reals, NonNegativeReals
+from pyomo.environ import Var, Constraint, Param, Block, exp, log, units, Reals, NonNegativeReals
+from pyomo.dae import DerivativeVar
 
 def add_tetraamine_parameters(RPB):
     RPB.TA = Block()
@@ -173,6 +174,16 @@ def add_tetraamine_isotherm(blk, initial_guesses):
         doc="CO2 loading [mol/kg]",
         units=units.mol / units.kg,
     )
+    for t in RPB.flowsheet().time:
+        blk.TA.qCO2[t, 0, 0].fix(1)
+        blk.TA.qCO2[t, 1, 0].fix(1)
+    
+    blk.TA.dqCO2do = DerivativeVar(
+        blk.TA.qCO2,
+        wrt=blk.o,
+        units=units.mol / units.kg,
+        doc="theta derivative of loading [mol/kg/dimensionless bed fraction]",
+    )
 
     def d_1(T):
         return TA_param.d_inf_1 * exp(
@@ -312,6 +323,24 @@ def add_tetraamine_isotherm(blk, initial_guesses):
             return exp((z - a2_FL) / sig_FL) / (1 + exp((z - a2_FL) / sig_FL))
 
         return FL_1(z) - FL_2(z)
+    
+    @blk.TA.Expression(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        doc="effective diffusion in solids [m^2/s]",
+    )
+    def Deff(b, t, z, o):
+        return TA_param.C1 * blk.Ts[t, z, o] ** 0.5
+
+    @blk.TA.Expression(
+        RPB.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
+    )
+    def k_I(b, t, z, o):
+        return (
+            blk.R_MT_coeff * (15 * TA_param.ep * b.Deff[t, z, o] / TA_param.rp**2)
+            + (1 - blk.R_MT_coeff) * 0.001 / units.s
+        )
 
     blk.TA.Rs_CO2 = Var(
         RPB.flowsheet().time,
@@ -336,13 +365,29 @@ def add_tetraamine_isotherm(blk, initial_guesses):
             return (
                 b.Rs_CO2[t, z, o]
                 == flux_lim
-                * blk.k_I[t, z, o]
+                * b.k_I[t, z, o]
                 * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
                 * (1 - RPB.eb[z])
                 * TA_param.rho_sol * RPB.sorbent_weight[z, 'TA']
             )
         else:
             return b.Rs_CO2[t, z, o] == 0 * units.mol / units.s / units.m**3
+        
+    @blk.TA.Constraint(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        doc="solid phase mass balance PDE [mol/m^3 bed/s]",
+    )
+    def pde_solidMB(b, t, z, o):
+        if 0 < o < 1:
+            return b.dqCO2do[t, z, o] == (
+                b.k_I[t, z, o] * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
+            )
+        elif o == 1:  # at solids exit, flux is zero
+            return b.dqCO2do[t, z, o] == 0
+        else:  # no balance at o=0, inlets are specified
+            return Constraint.Skip
 
 def add_tetraamine_adsortion_heat(TA):
     RPB = TA.parent_block().parent_block()

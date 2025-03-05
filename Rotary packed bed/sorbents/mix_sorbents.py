@@ -1,6 +1,7 @@
-from pyomo.environ import Var, Constraint
+from pyomo.environ import Var, Constraint, Reals, units
 from .Tetraamine import add_tetraamine_parameters, add_tetraamine_isotherm, add_tetraamine_adsortion_heat
 from .Diamine import add_diamine_parameters, add_diamine_isotherm, add_diamine_adsortion_heat
+import idaes.core.util.scaling as iscale
 
 def mix_sorbent_params(RPB, sorbent_list):
     sorbent_set = []
@@ -82,12 +83,12 @@ def mix_sorbent_isotherm(blk, sorbent_list, initial_guesses):
         doc="Total loading from all sorbents"
     )
     def qCO2_mix(b, t, z, o):
-        lhs = b.qCO2[t, z, o]
+        lhs = b.qCO2[t, z, o] * RPB.rho_sol[z]
         rhs = 0
         if 'TA' in sorbent_set:
-            rhs += b.TA.qCO2[t, z, o]
+            rhs += b.TA.qCO2[t, z, o] * RPB.TA.rho_sol * RPB.sorbent_weight[z, 'TA']
         if 'DA' in sorbent_set:
-            rhs += sum(b.DA.qCO2[t, z, o, i] for i in ['chem', 'phys'])
+            rhs += sum(b.DA.qCO2[t, z, o, i] for i in ['chem', 'phys']) * RPB.DA.rho_sol * RPB.sorbent_weight[z, 'DA']
         return lhs == rhs
 
 def mix_sorbent_adsorption_heat(blk, sorbent_list):
@@ -95,10 +96,34 @@ def mix_sorbent_adsorption_heat(blk, sorbent_list):
     sorbent_set = []
     if 'Tetraamine' in sorbent_list:
         add_tetraamine_adsortion_heat(blk.TA)
-        sorbent_set = []
+        sorbent_set.append('TA')
     if 'Diamine' in sorbent_list:
         add_diamine_adsortion_heat(blk.DA)
         sorbent_set.append('DA')
+
+    blk.Q_delH = Var(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        initialize=0,
+        domain=Reals,
+        units=units.kJ / units.s / units.m**3,
+        doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
+    )
+
+    @blk.Constraint(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
+    )
+    def Q_delH_eq(b, t, z, o):
+        Q = 0
+        if 'TA' in sorbent_set:
+            Q += b.TA.delH_CO2[t, z, o] * b.TA.Rs_CO2[t, z, o]
+        if 'DA' in sorbent_set:
+            Q += b.DA.delH_CO2[t, z, o] * b.DA.Rs_CO2[t, z, o]
+        return b.Q_delH[t, z, o] == blk.R_delH * Q
 
     @blk.Expression(
         RPB.flowsheet().time,
@@ -112,3 +137,96 @@ def mix_sorbent_adsorption_heat(blk, sorbent_list):
             for s in sorbent_set
         )
     
+def scale_sorbent_mix(blk, sorbent_list):
+    RPB = blk.parent_block()
+    sorbent_set = []
+    if 'Tetraamine' in sorbent_list:
+        sorbent_set.append('TA')
+    if 'Diamine' in sorbent_list:
+        sorbent_set.append('DA')
+    
+    for s in sorbent_set:
+        sorbent = getattr(blk, s)
+
+        for t in RPB.flowsheet().time:
+            for z in blk.z:
+                
+                for o in blk.o:
+                    if s == 'DA':
+                        iscale.set_scaling_factor(sorbent.qCO2[t, z, o, 'chem'], 10)
+                        iscale.set_scaling_factor(sorbent.qCO2[t, z, o, 'phys'], 10)
+                    else:
+                        iscale.set_scaling_factor(sorbent.qCO2[t, z, o], 10)
+                    
+                    if 0 < z < 1 and 0 < o < 1:
+                        if s == 'DA':
+                            iscale.set_scaling_factor(sorbent.pde_solidMB[t, z, o, 'chem'], 1e-3)
+                            iscale.set_scaling_factor(sorbent.pde_solidMB[t, z, o, 'phys'], 1e-3)
+                        else:
+                            iscale.set_scaling_factor(sorbent.pde_solidMB[t, z, o], 1e-3)
+
+                        iscale.set_scaling_factor(sorbent.Rs_CO2[t, z, o], 0.5)
+
+def connect_mixed_sorbent_sections(RPB, sorbent_list):
+    sorbent_set = []
+    if 'Tetraamine' in sorbent_list:
+        sorbent_set.append('TA')
+    if 'Diamine' in sorbent_list:
+        sorbent_set.append('DA')
+
+    if 'TA' in sorbent_set:
+        for t in RPB.flowsheet().time:
+            for z in [0, 1]:
+                RPB.des.TA.qCO2[t, z, 0].fix()
+                RPB.ads.TA.qCO2[t, z, 0].fix()
+
+        @RPB.Constraint(
+            RPB.flowsheet().time,
+            RPB.z,
+            doc="Tetraamine rich loading constraint"
+        )
+        def TA_rich_loading_constraint(b, t, z):
+            if 0 < z < 1:
+                return b.des.TA.qCO2[t, z, 0] == b.ads.TA.qCO2[t, z, 1]
+            else:
+                return Constraint.Skip
+        @RPB.Constraint(
+            RPB.flowsheet().time,
+            RPB.z,
+            doc="Tetraamine lean loading constraint"
+        )
+        def TA_lean_loading_constraint(b, t, z):
+            if 0 < z < 1:
+                return b.ads.TA.qCO2[t, z, 0] == b.des.TA.qCO2[t, z, 1]
+            else:
+                return Constraint.Skip
+            
+    if 'DA' in sorbent_set:
+        for t in RPB.flowsheet().time:
+            for z in [0, 1]:
+                for i in ['chem', 'phys']:
+                    RPB.des.DA.qCO2[t, z, 0, i].fix()
+                    RPB.ads.DA.qCO2[t, z, 0, i].fix()
+
+        @RPB.Constraint(
+            RPB.flowsheet().time,
+            RPB.z,
+            ['chem', 'phys'],
+            doc="Diamine rich loading constraint"
+        )
+        def DA_rich_loading_constraint(b, t, z, i):
+            if 0 < z < 1:
+                return b.des.DA.qCO2[t, z, 0, i] == b.ads.DA.qCO2[t, z, 1, i]
+            else:
+                return Constraint.Skip
+        @RPB.Constraint(
+            RPB.flowsheet().time,
+            RPB.z,
+            ['chem', 'phys'],
+            doc="Diamine lean loading constraint"
+        )
+        def DA_lean_loading_constraint(b, t, z, i):
+            if 0 < z < 1:
+                return b.ads.DA.qCO2[t, z, 0, i] == b.des.DA.qCO2[t, z, 1, i]
+            else:
+                return Constraint.Skip

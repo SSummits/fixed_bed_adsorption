@@ -1,5 +1,5 @@
-from pyomo.environ import Var, Param, Block, exp, log, units, Reals, NonNegativeReals
-from torch import P
+from pyomo.environ import Var, Constraint, Param, Block, exp, log, units, Reals, NonNegativeReals
+from pyomo.dae import DerivativeVar
 
 def add_diamine_parameters(RPB):
     RPB.DA = Block()
@@ -86,6 +86,8 @@ def add_diamine_parameters(RPB):
         initialize=7.18, units=units.kJ/units.mol, doc="mass transfer parameter"
     )
 
+    DA.T0 = Param(initialize=318, units=units.K, doc="isotherm parameter")
+
     # Mass transfer parameters
     DA.C1 = Param(
         initialize=(4.11e-12),
@@ -119,6 +121,16 @@ def add_diamine_isotherm(blk, initial_guesses):
         bounds=(0, 5),
         doc="CO2 loading [mol/kg]",
         units=units.mol / units.kg,
+    )
+    for t in RPB.flowsheet().time:
+        blk.DA.qCO2[t, 0, 0, :].fix(1)
+        blk.DA.qCO2[t, 1, 0, :].fix(1)
+
+    blk.DA.dqCO2do = DerivativeVar(
+        blk.DA.qCO2,
+        wrt=blk.o,
+        units=units.mol / units.kg,
+        doc="theta derivative of loading [mol/kg/dimensionless bed fraction]",
     )
 
     def b_chem(T):
@@ -174,13 +186,23 @@ def add_diamine_isotherm(blk, initial_guesses):
 
         return FL_1(z) - FL_2(z)
     
-    def k_chem(T):
+    @blk.DA.Expression(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+    )
+    def k_chem(b, t, z, o):
         return DA_param.k_chem_0 * exp(
-            -DA_param.E_chem / RPB.R / DA_param.T0 * (DA_param.T0 / T - 1)
+            -DA_param.E_chem / RPB.R / DA_param.T0 * (DA_param.T0 / blk.Ts[t, z, o] - 1)
         )
-    def k_phys(T):
+    @blk.DA.Expression(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+    )
+    def k_phys(b, t, z, o):
         return DA_param.k_phys_0 * exp(
-            -DA_param.E_phys / RPB.R / DA_param.T0 * (DA_param.T0 / T - 1)
+            -DA_param.E_phys / RPB.R / DA_param.T0 * (DA_param.T0 / blk.Ts[t, z, o] - 1)
         )
     
     @blk.DA.Expression(
@@ -210,7 +232,7 @@ def add_diamine_isotherm(blk, initial_guesses):
         units=1/units.s,
         doc="Mass transfer coefficient for chemical and physical adsorption"
     )
-    @blk.DA.Expression(
+    @blk.DA.Constraint(
         RPB.flowsheet().time,
         blk.z,
         blk.o,
@@ -219,9 +241,9 @@ def add_diamine_isotherm(blk, initial_guesses):
     )
     def k_0_eqn(b, t, z, o, i):
         if i == 'chem':
-            k = k_chem(b.Ts[t, z, o])
+            k = b.k_chem[t, z, o]
         elif i == 'phys':
-            k = k_phys(b.Ts[t, z, o])
+            k = b.k_phys[t, z, o]
         
         return k == b.k_0[t, z, o, i] * (k / b.k_I[t, z, o] + 1)
 
@@ -247,17 +269,42 @@ def add_diamine_isotherm(blk, initial_guesses):
         if 0 < z < 1 and 0 < o < 1:
             Ts = blk.Ts[t, z, o]
             P = blk.P_surf[t, z, o]
+            k_0C = b.k_0[t, z, o, 'chem']
+            k_0P = b.k_0[t, z, o, 'phys']
             return (
                 b.Rs_CO2[t, z, o]
                 == flux_lim
-                * (k_chem(b.Ts[t, z, o]) * (q_star_chem(blk.Ts[t, z, o], blk.P_surf[t, z, o]) - b.qCO2[t, z, o, 'chem'])
-                   + k_phys(b.Ts[t, z, o]) * (q_star_phys(blk.Ts[t, z, o], blk.P_surf[t, z, o]) - b.qCO2[t, z, o, 'phys'])
+                * (k_0C * (q_star_chem(Ts, P) - b.qCO2[t, z, o, 'chem'])
+                   + k_0P * (q_star_phys(Ts, P) - b.qCO2[t, z, o, 'phys'])
                 )
                 * (1 - RPB.eb[z])
                 * DA_param.rho_sol * RPB.sorbent_weight[z, 'DA']
             )
         else:
             return b.Rs_CO2[t, z, o] == 0 * units.mol / units.s / units.m**3
+        
+    @blk.DA.Constraint(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        ['chem', 'phys'],
+        doc="solid phase mass balance PDE [mol/m^3 bed/s]",
+    )
+    def pde_solidMB(b, t, z, o, i):
+        if 0 < o < 1:
+            Ts = blk.Ts[t, z, o]
+            P = blk.P_surf[t, z, o]
+            if i == 'chem':
+                q_star = q_star_chem(Ts, P)
+            elif i == 'phys':
+                q_star = q_star_phys(Ts, P)
+            return b.dqCO2do[t, z, o, i] == (
+                b.k_0[t, z, o, i] * (q_star - b.qCO2[t, z, o, i])
+            )
+        elif o == 1:  # at solids exit, flux is zero
+            return b.dqCO2do[t, z, o, i] == 0
+        else:  # no balance at o=0, inlets are specified
+            return Constraint.Skip
     
 def add_diamine_adsortion_heat(DA):
     RPB = DA.parent_block().parent_block()

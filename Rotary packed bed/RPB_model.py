@@ -76,7 +76,13 @@ from idaes.models_extra.power_generation.properties import FlueGasParameterBlock
 
 import idaes.logger as idaeslog
 
-from sorbents.mix_sorbents import mix_sorbent_params, mix_sorbent_isotherm, mix_sorbent_adsorption_heat
+from sorbents.mix_sorbents import (
+    mix_sorbent_params,
+    mix_sorbent_isotherm, 
+    mix_sorbent_adsorption_heat,
+    scale_sorbent_mix,
+    connect_mixed_sorbent_sections,
+)
 
 __author__ = "Ryan Hughes"
 
@@ -170,7 +176,7 @@ class RotaryPackedBedData(UnitModelBlockData):
     CONFIG.declare(
         "mixed_sorbent_list",
         ConfigValue(
-            default=["Tetraamine"],
+            default=["Tetraamine", "Diamine"],
             domain=list,
             description="list of sorbents in the bed",
             doc="""List of all the sorbents in the bed to be mixed/layered,
@@ -936,12 +942,12 @@ see property package for documentation.}""",
             units=units.mol / units.kg,
         )
 
-        blk.dqCO2do = DerivativeVar(
-            blk.qCO2,
-            wrt=blk.o,
-            units=units.mol / units.kg,
-            doc="theta derivative of loading [mol/kg/dimensionless bed fraction]",
-        )
+        # blk.dqCO2do = DerivativeVar(
+        #     blk.qCO2,
+        #     wrt=blk.o,
+        #     units=units.mol / units.kg,
+        #     doc="theta derivative of loading [mol/kg/dimensionless bed fraction]",
+        # )
 
         blk.Ts = Var(
             self.flowsheet().time,
@@ -1726,26 +1732,26 @@ see property package for documentation.}""",
         #     else:
         #         return 0 * units.kW / units.m**3
 
-        blk.Q_delH = Var(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            initialize=0,
-            domain=Reals,
-            units=units.kJ / units.s / units.m**3,
-            doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
-        )
+        # blk.Q_delH = Var(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     initialize=0,
+        #     domain=Reals,
+        #     units=units.kJ / units.s / units.m**3,
+        #     doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
+        # )
 
-        @blk.Constraint(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
-        )
-        def Q_delH_eq(b, t, z, o):
-            return (
-                b.Q_delH[t, z, o] == b.R_delH * b.delH_CO2[t, z, o] * b.Rs_CO2[t, z, o]
-            )
+        # @blk.Constraint(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="adsorption/desorption heat rate [kJ/s/m^3 bed]",
+        # )
+        # def Q_delH_eq(b, t, z, o):
+        #     return (
+        #         b.Q_delH[t, z, o] == b.R_delH * b.delH_CO2[t, z, o] * b.Rs_CO2[t, z, o]
+        #     )
 
         # @blk.Expression(
         #     self.flowsheet().time,
@@ -1804,23 +1810,23 @@ see property package for documentation.}""",
         def flux_eq(b, t, z, o, k):
             return b.Flux_kzo[t, z, o, k] == b.C[t, z, o, k] * b.vel[t, z, o]
 
-        @blk.Constraint(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="solid phase mass balance PDE [mol/m^3 bed/s]",
-        )
-        def pde_solidMB(b, t, z, o):
-            if 0 < o < 1:
-                return (1 - self.eb[z]) * self.rho_sol[z] * b.dqCO2do[t, z, o] * self.w[
-                    t
-                ] == (b.Rs_CO2[t, z, o] * b.R_MT_solid) * (
-                    (2 * const.pi * units.radians) * b.theta
-                )
-            elif o == 1:  # at solids exit, flux is zero
-                return b.dqCO2do[t, z, o] == 0
-            else:  # no balance at o=0, inlets are specified
-                return Constraint.Skip
+        # @blk.Constraint(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="solid phase mass balance PDE [mol/m^3 bed/s]",
+        # )
+        # def pde_solidMB(b, t, z, o):
+        #     if 0 < o < 1:
+        #         return (1 - self.eb[z]) * self.rho_sol[z] * b.dqCO2do[t, z, o] * self.w[
+        #             t
+        #         ] == (b.Rs_CO2[t, z, o] * b.R_MT_solid) * (
+        #             (2 * const.pi * units.radians) * b.theta
+        #         )
+        #     elif o == 1:  # at solids exit, flux is zero
+        #         return b.dqCO2do[t, z, o] == 0
+        #     else:  # no balance at o=0, inlets are specified
+        #         return Constraint.Skip
 
         @blk.Constraint(
             self.flowsheet().time,
@@ -2215,6 +2221,7 @@ see property package for documentation.}""",
                         )
 
         # scaling factors ================================
+        scale_sorbent_mix(blk, self.CONFIG.mixed_sorbent_list)
         iscale.set_scaling_factor(blk.theta, 1e5)
 
         for t in self.flowsheet().time:
@@ -2281,11 +2288,11 @@ see property package for documentation.}""",
                         iscale.set_scaling_factor(blk.Flux_kzo[t, z, o, "H2O"], 1e1)
 
                     if 0 < z < 1 and 0 < o < 1:
-                        iscale.set_scaling_factor(blk.dqCO2do[t, z, o], 1e-2)
-                        iscale.set_scaling_factor(blk.dqCO2do_disc_eq[t, z, o], 1e-2)
+                        # iscale.set_scaling_factor(blk.dqCO2do[t, z, o], 1e-2)
+                        # iscale.set_scaling_factor(blk.dqCO2do_disc_eq[t, z, o], 1e-2)
                         iscale.set_scaling_factor(blk.pde_gasEB[t, z, o], 1e0)
                         iscale.set_scaling_factor(blk.pde_solidEB[t, z, o], 1e-4)
-                        iscale.set_scaling_factor(blk.pde_solidMB[t, z, o], 1e-3)
+                        # iscale.set_scaling_factor(blk.pde_solidMB[t, z, o], 1e-3)
                         iscale.set_scaling_factor(blk.dheat_fluxdz[t, z, o], 1e-2)
                         iscale.set_scaling_factor(blk.dTsdo[t, z, o], 1e-1)
                         iscale.set_scaling_factor(blk.dTsdo_disc_eq[t, z, o], 1e-1)
@@ -2426,20 +2433,20 @@ see property package for documentation.}""",
         """
         Method for connecting the sorbent streams between adsorption and desorption sections.
         """
-
+        connect_mixed_sorbent_sections(self, self.CONFIG.mixed_sorbent_list)
         # connect rich stream
         # add equality constraint equating inlet desorption loading to outlet adsorption loading. Same for temperature.
         for t in self.flowsheet().time:
             for z in [0, 1]:
-                self.des.qCO2[t, z, 0].fix()
+                # self.des.qCO2[t, z, 0].fix()
                 self.des.Ts[t, z, 0].fix()
 
-        @self.Constraint(self.flowsheet().time, self.des.z)
-        def rich_loading_constraint(b, t, z):
-            if 0 < z < 1:
-                return b.des.qCO2[t, z, 0] == b.ads.qCO2[t, z, 1]
-            else:
-                return Constraint.Skip
+        # @self.Constraint(self.flowsheet().time, self.des.z)
+        # def rich_loading_constraint(b, t, z):
+        #     if 0 < z < 1:
+        #         return b.des.qCO2[t, z, 0] == b.ads.qCO2[t, z, 1]
+        #     else:
+        #         return Constraint.Skip
 
         @self.Constraint(self.flowsheet().time, self.des.z)
         def rich_temp_constraint(b, t, z):
@@ -2452,15 +2459,15 @@ see property package for documentation.}""",
         # add equality constraint equating inlet adsorption loading to outlet desorption loading
         for t in self.flowsheet().time:
             for z in [0, 1]:
-                self.ads.qCO2[t, z, 0].fix()
+                # self.ads.qCO2[t, z, 0].fix()
                 self.ads.Ts[t, z, 0].fix()
 
-        @self.Constraint(self.flowsheet().time, self.ads.z)
-        def lean_loading_constraint(b, t, z):
-            if 0 < z < 1:
-                return b.ads.qCO2[t, z, 0] == b.des.qCO2[t, z, 1]
-            else:
-                return Constraint.Skip
+        # @self.Constraint(self.flowsheet().time, self.ads.z)
+        # def lean_loading_constraint(b, t, z):
+        #     if 0 < z < 1:
+        #         return b.ads.qCO2[t, z, 0] == b.des.qCO2[t, z, 1]
+        #     else:
+        #         return Constraint.Skip
 
         @self.Constraint(self.flowsheet().time, self.ads.z)
         def lean_temp_constraint(b, t, z):
@@ -2471,10 +2478,10 @@ see property package for documentation.}""",
 
         # these variables are inactive, just fixing them to same value for plotting purposes
         for t in self.flowsheet().time:
-            self.ads.qCO2[t, 0, 0].fix(1)
-            self.ads.qCO2[t, 1, 0].fix(1)
-            self.des.qCO2[t, 0, 0].fix(1)
-            self.des.qCO2[t, 1, 0].fix(1)
+            # self.ads.qCO2[t, 0, 0].fix(1)
+            # self.ads.qCO2[t, 1, 0].fix(1)
+            # self.des.qCO2[t, 0, 0].fix(1)
+            # self.des.qCO2[t, 1, 0].fix(1)
 
             self.ads.Ts[t, 0, 0].fix(100 + 273)
             self.ads.Ts[t, 1, 0].fix(100 + 273)
@@ -2522,11 +2529,11 @@ see property package for documentation.}""",
 
         # add scaling factors
         iscale.set_scaling_factor(self.theta_constraint, 1e2)
-        for t in self.flowsheet().time:
-            for z in self.ads.z:
-                if 0 < z < 1:
-                    iscale.set_scaling_factor(self.lean_loading_constraint[t, z], 10)
-                    iscale.set_scaling_factor(self.rich_loading_constraint[t, z], 10)
+        # for t in self.flowsheet().time:
+        #     for z in self.ads.z:
+        #         if 0 < z < 1:
+        #             iscale.set_scaling_factor(self.lean_loading_constraint[t, z], 10)
+        #             iscale.set_scaling_factor(self.rich_loading_constraint[t, z], 10)
 
     def initialize_build(
         blk,
