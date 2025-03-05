@@ -181,6 +181,46 @@ def add_diamine_isotherm(blk, initial_guesses):
         return DA_param.k_phys_0 * exp(
             -DA_param.E_phys / RPB.R / DA_param.T0 * (DA_param.T0 / T - 1)
         )
+    
+    @blk.DA.Expression(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        doc="effective diffusion in solids [m^2/s]",
+    )
+    def Deff(b, t, z, o):
+        return DA_param.C1 * blk.Ts[t, z, o] ** 0.5
+
+    @blk.DA.Expression(
+        RPB.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
+    )
+    def k_I(b, t, z, o):
+        return (
+            blk.R_MT_coeff * (15 * DA_param.ep * b.Deff[t, z, o] / DA_param.rp**2)
+            + (1 - blk.R_MT_coeff) * 0.001 / units.s
+        )
+    
+    blk.DA.k_0 = Var(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        ['chem', 'phys'],
+        initialize=1,
+        units=1/units.s,
+        doc="Mass transfer coefficient for chemical and physical adsorption"
+    )
+    @blk.DA.Expression(
+        RPB.flowsheet().time,
+        blk.z,
+        blk.o,
+        ['chem', 'phys'],
+        doc="Mass transfer coefficient equation for chemical adsorption"
+    )
+    def k_0c_eqn(b, t, z, o, i):
+        if i == 'chem':
+            k = k_chem(b.Ts[t, z, o])
+        elif i == 'phys':
+            k = k_phys(b.Ts[t, z, o])
 
     blk.DA.Rs_CO2 = Var(
         RPB.flowsheet().time,
