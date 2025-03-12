@@ -218,7 +218,7 @@ cap_init = m.fs.RPB.ads.CO2_capture[0]()
 for cap in np.linspace(cap_init, 0.99, 10):
     m.fs.RPB.ads.CO2_capture.fix(cap)
     # Solver.solve(m, tee=True)
-    # opt_res = solver_methods.NEOS_solver(m.fs)
+    opt_res = solver_methods.NEOS_solver(m.fs)
     res_df = res_df.join(RPB_util.make_results_table(m.fs), rsuffix=f'_{cap}')
     # print(m.fs.RPB.report_custom())
     # print(f'================\n{m.fs.RPB.ads.F_in[0]()}\n{m.fs.RPB.des.Tx[0]()}\n================')
