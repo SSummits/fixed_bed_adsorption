@@ -248,6 +248,21 @@ see property package for documentation.}""",
             self, wrt=self.z, nfe=self.config.z_nfe, scheme="BACKWARD"
         )
 
+        @self.Integral(
+            self.z,
+            wrt=self.z,
+            doc='average sorbent density [kg/m^3]',
+        )
+        def rho_sol_avg(b, z):
+            return b.rho_sol[z]
+        @self.Integral(
+            self.z,
+            wrt=self.z,
+            doc='average sorbent bed voidage',
+        )
+        def eb_avg(b, z):
+            return b.eb[z]
+
         # Add expressions for constants
         @self.Expression(doc="gas constant [kJ/mol/K]")
         def R(b):
@@ -1374,23 +1389,23 @@ see property package for documentation.}""",
             doc="solids mass transfer rate [mol/s/m^3 bed]",
         )
 
-        @blk.Expression(
-            self.flowsheet().time,
-            blk.z,
-            blk.o,
-            doc="effective diffusion in solids [m^2/s]",
-        )
-        def Deff(b, t, z, o):
-            return self.C1[z] * b.Ts[t, z, o] ** 0.5
+        # @blk.Expression(
+        #     self.flowsheet().time,
+        #     blk.z,
+        #     blk.o,
+        #     doc="effective diffusion in solids [m^2/s]",
+        # )
+        # def Deff(b, t, z, o):
+        #     return self.C1[z] * b.Ts[t, z, o] ** 0.5
 
-        @blk.Expression(
-            self.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
-        )
-        def k_I(b, t, z, o):
-            return (
-                b.R_MT_coeff * (15 * self.ep[z] * b.Deff[t, z, o] / self.rp[z]**2)
-                + (1 - b.R_MT_coeff) * 0.001 / units.s
-            )
+        # @blk.Expression(
+        #     self.flowsheet().time, blk.z, blk.o, doc="internal MT coeff. [1/s]"
+        # )
+        # def k_I(b, t, z, o):
+        #     return (
+        #         b.R_MT_coeff * (15 * self.ep[z] * b.Deff[t, z, o] / self.rp[z]**2)
+        #         + (1 - b.R_MT_coeff) * 0.001 / units.s
+        #     )
         
 
         mix_sorbent_isotherm(blk, self.CONFIG.mixed_sorbent_list, initial_guesses)
@@ -2053,11 +2068,11 @@ see property package for documentation.}""",
 
         @blk.Expression(doc="total solids volume [m^3]")
         def vol_solids_tot(b):
-            return b.vol_tot * (1 - np.average(self.eb))
+            return b.vol_tot * (1 - self.eb_avg)
 
         @blk.Expression(doc="total solids mass [kg]")
         def mass_solids_tot(b):
-            return b.vol_solids_tot * np.average(self.rho_sol)
+            return b.vol_solids_tot * self.rho_sol_avg
 
         @blk.Expression(self.flowsheet().time, doc="total solids flow [kg/s]")
         def flow_solids_tot(b, t):
@@ -3325,10 +3340,10 @@ def single_section_init(blk):
     init_obj = BlockTriangularizationInitializer()
     init_obj.config.block_solver_call_options = {"tee": True}
 
-    blk.P_in.fix(1.1)
-    blk.Tg_in.fix()
-    blk.y_in.fix()
-    blk.P_out.fix(1.01325)
+    # blk.P_in.fix(1.1)
+    # blk.Tg_in.fix()
+    # blk.y_in.fix()
+    # blk.P_out.fix(1.01325)
 
     blk.R_HT_gs = 1e-10
     blk.R_HT_ghx = 1e-10

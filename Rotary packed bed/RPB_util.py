@@ -1,3 +1,6 @@
+import re
+import pandas as pd
+
 def set_bounds(fs):
     fs.flue_gas_in.pressure.setlb(1e5)
     fs.flue_gas_in.pressure.setub(2.5e5)
@@ -25,3 +28,18 @@ def set_bounds(fs):
 
     fs.RPB.ads.vel.setub(100)
     fs.RPB.des.vel.setub(100)
+
+def make_results_table(fs):
+    res = pd.DataFrame()
+
+    RPB_res = fs.RPB.report_custom()
+    for i in RPB_res.index:
+        res.at[i, 'Value'] = RPB_res['Value'][i]
+
+    res.at['LCOC', 'Value'] = fs.costing.LCOC()
+    res.at['Total Plant Cost', 'Value'] = fs.costing.total_TPC()
+    res.at['Electricity Cost', 'Value'] = fs.costing.variable_operating_costs[0,'electricity']()
+    res.at['Diamine Cost', 'Value'] = fs.costing.variable_operating_costs[0,'diamine']()
+    res.at['Tetraamine Cost', 'Value'] = fs.costing.variable_operating_costs[0,'tetraamine']()
+
+    return res

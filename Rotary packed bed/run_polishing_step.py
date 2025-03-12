@@ -37,6 +37,7 @@ from pyomo.network import Arc
 from idaes.core.util.model_diagnostics import DiagnosticsToolbox
 
 import numpy as np
+import pandas as pd
 import solver_methods
 
 from costing.rpb_costing import build_RPB_costing
@@ -88,6 +89,13 @@ m.fs.RPB = RotaryPackedBed(
 #     z_nfe=z_nfe,
 #     o_nfe=o_nfe,
 # )
+# z_init_points=tuple(np.geomspace(0.01, 0.5, 7)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 7))[::-1])
+# o_init_points=tuple(np.geomspace(0.005, 0.1, 6)) + tuple(np.linspace(0.1, 0.995, 8)[1:])
+# m.fs.RPB = RotaryPackedBed(
+#     property_package = m.fs.gas_props,
+#     z_init_points=z_init_points,
+#     o_init_points=o_init_points,
+# )
 
 # add stream connections
 m.fs.s_flue_gas = Arc(source=m.fs.flue_gas_in.outlet, destination=m.fs.RPB.ads_gas_inlet)
@@ -100,12 +108,12 @@ TransformationFactory("network.expand_arcs").apply_to(m)
 
 # fix state variables in feed and product blocks
 # ads side
-m.fs.flue_gas_in.pressure.fix(2.13*1e5)
+m.fs.flue_gas_in.pressure.fix(1.5*1e5)
 m.fs.flue_gas_in.temperature.fix(90+273.15)
 m.fs.flue_gas_out.pressure.fix(1.03*1e5)
-m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.04)
+m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.004)
 m.fs.flue_gas_in.mole_frac_comp[0,"H2O"].fix(0.07)
-m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.04-0.07)
+m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.004-0.07)
 
 #des side
 m.fs.steam_sweep_feed.pressure.fix(1.03*1e5)
@@ -118,19 +126,19 @@ m.fs.steam_sweep_feed.mole_frac_comp[0,"H2O"].fix(1-1e-5-1e-3)
 # fix design variables of the RPB
 m.fs.RPB.ads.Tx.fix(348.04)
 m.fs.RPB.des.Tx.fix(433)
-m.fs.RPB.w_rpm.fix(2.21e-3)
-m.fs.RPB.L.fix(16.64)
-m.fs.RPB.ads.theta.fix(0.38)
-m.fs.RPB.des.theta = 1-0.38
+m.fs.RPB.w_rpm.fix(1)
+m.fs.RPB.L.fix(6)
+m.fs.RPB.ads.theta.fix(0.60)
+m.fs.RPB.des.theta = 1-0.60
 
 # Fix sorbent composition
 for z in m.fs.RPB.z:
     if z < 0.5:
-        m.fs.RPB.sorbent_weight[z, 'TA'].fix(1e-5)
+        m.fs.RPB.sorbent_weight[z, 'TA'].fix(1e-8)
         m.fs.RPB.sorbent_weight[z, 'DA'].fix(1)
     else:
         m.fs.RPB.sorbent_weight[z, 'TA'].fix(1)
-        m.fs.RPB.sorbent_weight[z, 'DA'].fix(1e-5)
+        m.fs.RPB.sorbent_weight[z, 'DA'].fix(1e-8)
 
 
 # initialize feed and product blocks
@@ -148,26 +156,22 @@ propagate_state(arc = m.fs.s_regeneration_prod, direction="backward")
 # Initialize RPB
 optarg = {
     # "halt_on_ampl_error": "yes",
-    "max_iter": 1000,
+    "max_iter": 5000,
     "bound_push": 1e-22,
     # "mu_init": 1e-3,
     "nlp_scaling_method": "user-scaling",
     'halt_on_ampl_error': 'yes',
 }
 init_points = [1e-5,1e-3,1e-1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]
+# init_points = [1]
 # init_points = [1e-5, 0.25, 0.5, 0.75, 1]
 RPB_util.set_bounds(m.fs)
-m.fs.RPB.initialize(outlvl=idaeslog.DEBUG, optarg=optarg, initialization_points=init_points)
 
-iutil.from_json(m, fname='RPB_init_try2.json.gz')
+# m.fs.RPB.initialize(outlvl=idaeslog.DEBUG, optarg=optarg, initialization_points=init_points)
+
+iutil.from_json(m.fs, fname='layered_polish_90_init5.json.gz')
+# iutil.from_json(m.fs, fname='HighNfe_TA_NGCC_init.json.gz')
 # iutil.from_json(m, fname='json_files/archive_polish/90_PCC_80_RPB.json.gz')
-
-# full solve with IPOPT
-Solver = get_solver("ipopt", optarg)
-# Solver.solve(m, tee=True).write()
-
-# build_RPB_costing(m.fs)
-# Solver.solve(m, tee=True)
 
 design_variables = [
     m.fs.flue_gas_in.pressure,
@@ -179,15 +183,28 @@ design_variables = [
     m.fs.RPB.L,
     # m.fs.RPB.D,
 ]
+m.fs.RPB.ads.CO2_capture.unfix()
+m.fs.RPB.ads.flow_mol_inlet.unfix()
+for v in design_variables:
+    v.fix()
 
-# m.fs.RPB.ads.inlet_properties[0.0].flow_mol.fix()
-# m.fs.RPB.ads.Tx[0].setlb(273+25)
+# full solve with IPOPT
+Solver = get_solver("ipopt", optarg)
+Solver.solve(m, tee=True).write()
+
+build_RPB_costing(m.fs)
+
+Solver.solve(m, tee=True)
+
+m.fs.RPB.ads.flow_mol_inlet.fix()
+
+
 
 m.fs.alpha_obj = Param(initialize=0.1, mutable=True)
 @m.fs.Objective()
 def min_energy(b):
-    return b.alpha_obj * b.RPB.energy_requirement[0] - (1-b.alpha_obj)*b.RPB.productivity[0]
-    # return b.costing.LCOC
+    # return b.alpha_obj * b.RPB.energy_requirement[0] - (1-b.alpha_obj)*b.RPB.productivity[0]
+    return b.costing.LCOC
 
 for v in design_variables:
     v.unfix()
@@ -195,38 +212,15 @@ for v in design_variables:
 RPB_util.set_bounds(m.fs)
 # iutil.from_json(m, fname='RPB_init_try2.json.gz')
 
-# for y_co2 in np.linspace(0.004226, 0.04, 15):
-#     m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(y_co2)
-#     m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.09-y_co2)
-#     solver_methods.NEOS_solver(m.fs)
+
+res_df = RPB_util.make_results_table(m.fs)
 cap_init = m.fs.RPB.ads.CO2_capture[0]()
-for cap in np.linspace(cap_init, 0.9, 1):
+for cap in np.linspace(cap_init, 0.99, 10):
     m.fs.RPB.ads.CO2_capture.fix(cap)
-    solver_methods.NEOS_solver(m.fs)
-    print(m.fs.RPB.report_custom())
+    # Solver.solve(m, tee=True)
+    # opt_res = solver_methods.NEOS_solver(m.fs)
+    res_df = res_df.join(RPB_util.make_results_table(m.fs), rsuffix=f'_{cap}')
+    # print(m.fs.RPB.report_custom())
     # print(f'================\n{m.fs.RPB.ads.F_in[0]()}\n{m.fs.RPB.des.Tx[0]()}\n================')
 
-# # Make adjustment to initial guesses if needed
-# iutil.from_json(m, fname='json_files/98PCC_95RPB.json.gz')
 
-# m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.004226)
-# m.fs.flue_gas_in.mole_frac_comp[0,"H2O"].fix(0.09)
-# m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.004226-0.09)
-# m.fs.RPB.ads.CO2_capture.fix(0.99)
-
-# m.fs.flue_gas_in.pressure.fix()
-
-
-# # Minimize Energy Requirement
-# solver_methods.NEOS_solver(m.fs)
-# # Solver.solve(m, tee=True)#, symbolic_solver_labels=True)
-
-
-# # Switch to minimize cost and solve
-# m.fs.min_energy.deactivate()
-# @m.fs.Objective()
-# def min_cost(b):
-#     return b.costing.LCOC
-# solver_methods.NEOS_solver(m.fs)
-
-# iutil.to_json(m, fname='json_files/90PCC_99RPB.json.gz')

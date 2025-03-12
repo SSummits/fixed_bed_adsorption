@@ -1,6 +1,7 @@
 import json
 
 # import pytest
+from colorama import init
 from numpy import number
 import pandas as pd
 from pyomo.environ import (
@@ -47,6 +48,7 @@ def build_RPB_costing(fs):
     # Parameters
     RPB_steam_power = fs.RPB.total_thermal_energy[0]
     fs.steam_flow_mass = Var(fs.time,
+                             bounds = (1e-8, None),
                              initialize=fs.RPB.total_thermal_energy[0]() / 2257.92,
                              units=units.lb / units.h)
     @fs.Constraint(fs.time)
@@ -133,18 +135,41 @@ def build_RPB_costing(fs):
 
 
     resources = [
-        "sorbent",
+        "tetraamine",
+        "diamine",
         "electricity"
     ]
 
     capacity_factor = 0.85
 
-    @fs.costing.Expression(fs.time)
-    def sorbent_rate(b, t):
+    fs.costing.tetraamine_lifespan = Param(
+        initialize=0.5,
+        units=units.year,
+        mutable=True,
+        doc="Lifespan of tetraamine sorbent"
+    )
+    @fs.costing.Expression(fs.time) #TODO: Update this to account for sorbent composition
+    def tetraamine_rate(b, t):
         RPB = b.parent_block().RPB
-        sorbent_lifespan = 2 * units.year
+        sorbent_lifespan = b.tetraamine_lifespan
         return (
-            units.convert(RPB.ads.vol_solids_tot, units.ft**3)
+            units.convert(RPB.ads.vol_solids_tot, units.ft**3) / 2
+            / sorbent_lifespan
+            * b.parent_block().number_of_units
+        )
+    
+    fs.costing.diamine_lifespan = Param(
+        initialize=0.5,
+        units=units.year,
+        mutable=True,
+        doc="Lifespan of diamine sorbent"
+    ) 
+    @fs.costing.Expression(fs.time) #TODO: Update this to account for sorbent composition
+    def diamine_rate(b, t):
+        RPB = b.parent_block().RPB
+        sorbent_lifespan = b.diamine_lifespan
+        return (
+            units.convert(RPB.ads.vol_solids_tot, units.ft**3) / 2
             / sorbent_lifespan
             * b.parent_block().number_of_units
         )
@@ -155,18 +180,20 @@ def build_RPB_costing(fs):
         return RPB.total_thermal_energy[t]
     
     rates = [
-        fs.costing.sorbent_rate,
+        fs.costing.tetraamine_rate,
+        fs.costing.diamine_rate,
         fs.costing.electricity_rate,
     ]
 
     prices = {
-        "sorbent": 200 * units.USD_2018 / units.ft**3,
+        "tetraamine": 16.19 * units.USD_2018 / units.ft**3,
+        "diamine": 16.19 * units.USD_2018 / units.ft**3,
         "electricity": 0.06 * units.USD_2018 / units.kWh,
     }
 
     fs.costing.tonne_CO2_capture = Var(
         initialize=1,
-        units=units.tonne / units.yr,
+        units=units.ton / units.yr,
         bounds=(0, None),
         doc="Yearly capture rate in metric tonnes"
     )
@@ -177,7 +204,7 @@ def build_RPB_costing(fs):
         co2_flow_mol = co2_stream.flow_mol[0] * co2_stream.mole_frac_comp[0,"CO2"]
         MW = 0.044 * units.kg / units.mol
         return b.tonne_CO2_capture == units.convert(co2_flow_mol * MW,
-                                                units.tonne/units.yr)
+                                                units.ton/units.yr)
 
     # Initialize costing
     fs.costing.build_process_costs(

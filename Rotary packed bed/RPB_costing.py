@@ -1,5 +1,7 @@
 from math import pi
+from re import L
 
+from cycler import V
 from pyomo.environ import Block, Var, Param, units as pyunits
 
 from idaes.models_extra.power_generation.costing.power_plant_capcost import (
@@ -11,25 +13,49 @@ def RPB_Polishing_Costing(fs):
 
     fs.RPB_cost = Block()
 
-    sorbent_volume = (fs.RPB.ads.vol_solids_tot +
-                      fs.RPB.des.vol_solids_tot)
-    fs.RPB_cost.sorbent_volume = Var(initialize = pyunits.convert(sorbent_volume, pyunits.ft**3),
-                                     units = pyunits.ft**3,
-                                     bounds = (0,None))
-    @fs.RPB_cost.Constraint()
-    def sorbent_volume_eqn(b):
-        return b.sorbent_volume == pyunits.convert(sorbent_volume, pyunits.ft**3)
+    @fs.RPB_cost.Integral(
+        fs.RPB.z,
+        wrt=fs.RPB.z
+    )
+    def tetraamine_volume(b, z):
+        D = fs.RPB.D
+        L = fs.RPB.L
+        V = pi * D**2 * L / 4
+        return V * (1 - fs.RPB.eb[z]) * fs.RPB.sorbent_weight[z, 'TA']
     
-    fs.RPB_cost.sorbent_cost = Var(initialize = 200,
+    fs.RPB_cost.tetraamine_cost = Var(initialize = 200,
                                    units = pyunits.USD_2018/pyunits.ft**3)
-    fs.RPB_cost.sorbent_cost.fix()
+    fs.RPB_cost.tetraamine_cost.fix()
 
-    fs.RPB_cost.bare_erected_cost = Var(initialize=1,
+    fs.RPB_cost.tetraamine_bare_erected_cost = Var(initialize=1,
                                         units = pyunits.MUSD_2018)
     @fs.RPB_cost.Constraint()
-    def bare_erected_cost_eqn(b):
+    def tetraamine_bare_erected_cost_eqn(b):
         return b.bare_erected_cost == pyunits.convert(
-            b.sorbent_volume * b.sorbent_cost,
+            b.tetraamine_volume * b.tetraamine_cost,
+            pyunits.MUSD_2018
+        )
+    
+    @fs.RPB_cost.Integral(
+        fs.RPB.z,
+        wrt=fs.RPB.z
+    )
+    def diamine_volume(b, z):
+        D = fs.RPB.D
+        L = fs.RPB.L
+        V = pi * D**2 * L / 4
+        return V * (1 - fs.RPB.eb[z]) * fs.RPB.sorbent_weight[z, 'DA']
+    
+    fs.RPB_cost.diamine_cost = Var(initialize = 200,
+                                   units = pyunits.USD_2018/pyunits.ft**3)
+    fs.RPB_cost.diamine_cost.fix()
+
+    fs.RPB_cost.diamine_bare_erected_cost = Var(initialize=1,
+                                        units = pyunits.MUSD_2018)
+    @fs.RPB_cost.Constraint()
+    def diamine_bare_erected_cost_eqn(b):
+        return b.bare_erected_cost == pyunits.convert(
+            b.diamine_volume * b.diamine_cost,
             pyunits.MUSD_2018
         )
     
@@ -42,7 +68,7 @@ def RPB_Polishing_Costing(fs):
                                        bounds = (0, 10000))
     @fs.RPB_cost.Constraint()
     def total_plant_cost_eqn(b):
-        return b.total_plant_cost == b.bare_erected_cost * (
+        return b.total_plant_cost == (b.tetraamine_bare_erected_cost+b.diamaine_bare_erected_cost) * (
                 1 + b.eng_fee + b.process_conting
             ) * (1 + b.project_conting)
     
