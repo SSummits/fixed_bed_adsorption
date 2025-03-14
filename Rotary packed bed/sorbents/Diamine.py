@@ -1,6 +1,8 @@
 from pyomo.environ import Var, Constraint, Param, Block, exp, log, units, Reals, NonNegativeReals
 from pyomo.dae import DerivativeVar
 
+from idaes.core.util.constants import Constants as const
+
 def add_diamine_parameters(RPB):
     RPB.DA = Block()
     DA = RPB.DA
@@ -298,9 +300,12 @@ def add_diamine_isotherm(blk, initial_guesses):
                 q_star = q_star_chem(Ts, P)
             elif i == 'phys':
                 q_star = q_star_phys(Ts, P)
-            return b.dqCO2do[t, z, o, i] == (
+            return RPB.w[t] * b.dqCO2do[t, z, o, i] == (
                 b.k_0[t, z, o, i] * (q_star - b.qCO2[t, z, o, i])
-            )
+            ) * (2 * const.pi * units.radians) * blk.theta * blk.R_MT_solid
+            # return b.dqCO2do[t, z, o, i] == (
+            #     b.k_0[t, z, o, i] * (q_star - b.qCO2[t, z, o, i])
+            # )
         elif o == 1:  # at solids exit, flux is zero
             return b.dqCO2do[t, z, o, i] == 0
         else:  # no balance at o=0, inlets are specified

@@ -2713,6 +2713,8 @@ see property package for documentation.}""",
             blk.des.R_HT_gs = i
             blk.ads.R_delH = i
             blk.des.R_delH = i
+            blk.ads.R_MT_solid = i
+            blk.des.R_MT_solid = i
             with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
                 init_obj.config.block_solver_call_options = {"tee": slc.tee}
                 init_obj.initialization_routine(blk)

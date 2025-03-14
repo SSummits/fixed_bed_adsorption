@@ -1,6 +1,8 @@
 from pyomo.environ import Var, Constraint, Param, Block, exp, log, units, Reals, NonNegativeReals
 from pyomo.dae import DerivativeVar
 
+from idaes.core.util.constants import Constants as const
+
 def add_tetraamine_parameters(RPB):
     RPB.TA = Block()
     TA = RPB.TA
@@ -381,9 +383,12 @@ def add_tetraamine_isotherm(blk, initial_guesses):
     )
     def pde_solidMB(b, t, z, o):
         if 0 < o < 1:
-            return b.dqCO2do[t, z, o] == (
+            return RPB.w[t] * b.dqCO2do[t, z, o] == (
                 b.k_I[t, z, o] * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
-            )
+            ) * (2 * const.pi * units.radians) * blk.theta * blk.R_MT_solid
+            # return b.dqCO2do[t, z, o] == (
+            #     b.k_I[t, z, o] * (b.qCO2_eq[t, z, o] - b.qCO2[t, z, o])
+            # )
         elif o == 1:  # at solids exit, flux is zero
             return b.dqCO2do[t, z, o] == 0
         else:  # no balance at o=0, inlets are specified

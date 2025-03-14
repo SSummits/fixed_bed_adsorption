@@ -70,25 +70,25 @@ m.fs.regeneration_prod = Product(property_package = m.fs.gas_props)
 
 
 # limited discretization, much faster
-m.fs.RPB = RotaryPackedBed(
-    property_package = m.fs.gas_props,
-    z_init_points = (0.01,0.99),
-    o_init_points = (0.01,0.99),
-    mixed_sorbent_list = ['Tetraamine', 'Diamine'],
-)
-
-# increased number of discretization points, lower mass balance error
-# z_init_points=tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1])
-# o_init_points=tuple(np.geomspace(0.005, 0.1, 8)) + tuple(np.linspace(0.1, 0.995, 10)[1:])
-# z_nfe=20
-# o_nfe=20
 # m.fs.RPB = RotaryPackedBed(
 #     property_package = m.fs.gas_props,
-#     z_init_points=z_init_points,
-#     o_init_points=o_init_points,
-#     z_nfe=z_nfe,
-#     o_nfe=o_nfe,
+#     z_init_points = (0.01,0.99),
+#     o_init_points = (0.01,0.99),
+#     mixed_sorbent_list = ['Tetraamine', 'Diamine'],
 # )
+
+# increased number of discretization points, lower mass balance error
+z_init_points=tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1])
+o_init_points=tuple(np.geomspace(0.005, 0.1, 8)) + tuple(np.linspace(0.1, 0.995, 10)[1:])
+z_nfe=20
+o_nfe=20
+m.fs.RPB = RotaryPackedBed(
+    property_package = m.fs.gas_props,
+    z_init_points=z_init_points,
+    o_init_points=o_init_points,
+    z_nfe=z_nfe,
+    o_nfe=o_nfe,
+)
 # z_init_points=tuple(np.geomspace(0.01, 0.5, 7)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 7))[::-1])
 # o_init_points=tuple(np.geomspace(0.005, 0.1, 6)) + tuple(np.linspace(0.1, 0.995, 8)[1:])
 # m.fs.RPB = RotaryPackedBed(
@@ -109,11 +109,11 @@ TransformationFactory("network.expand_arcs").apply_to(m)
 # fix state variables in feed and product blocks
 # ads side
 m.fs.flue_gas_in.pressure.fix(1.5*1e5)
-m.fs.flue_gas_in.temperature.fix(90+273.15)
+m.fs.flue_gas_in.temperature.fix(30+273.15)
 m.fs.flue_gas_out.pressure.fix(1.03*1e5)
-m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.004)
+m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.008)
 m.fs.flue_gas_in.mole_frac_comp[0,"H2O"].fix(0.07)
-m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.004-0.07)
+m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.008-0.07)
 
 #des side
 m.fs.steam_sweep_feed.pressure.fix(1.03*1e5)
@@ -124,12 +124,12 @@ m.fs.steam_sweep_feed.mole_frac_comp[0,"N2"].fix(1e-3)
 m.fs.steam_sweep_feed.mole_frac_comp[0,"H2O"].fix(1-1e-5-1e-3)
 
 # fix design variables of the RPB
-m.fs.RPB.ads.Tx.fix(348.04)
+m.fs.RPB.ads.Tx.fix(315)
 m.fs.RPB.des.Tx.fix(433)
 m.fs.RPB.w_rpm.fix(1)
-m.fs.RPB.L.fix(6)
-m.fs.RPB.ads.theta.fix(0.60)
-m.fs.RPB.des.theta = 1-0.60
+m.fs.RPB.L.fix(3)
+m.fs.RPB.ads.theta.fix(0.6)
+m.fs.RPB.des.theta = 1-0.6
 
 # Fix sorbent composition
 for z in m.fs.RPB.z:
@@ -169,8 +169,9 @@ RPB_util.set_bounds(m.fs)
 
 # m.fs.RPB.initialize(outlvl=idaeslog.DEBUG, optarg=optarg, initialization_points=init_points)
 
-iutil.from_json(m.fs, fname='layered_polish_90_init5.json.gz')
+# iutil.from_json(m.fs, fname='layered_polish_90_init5.json.gz')
 # iutil.from_json(m.fs, fname='HighNfe_TA_NGCC_init.json.gz')
+iutil.from_json(m.fs, fname='80PCC_54_sol.json.gz')
 # iutil.from_json(m, fname='json_files/archive_polish/90_PCC_80_RPB.json.gz')
 
 design_variables = [
@@ -193,10 +194,10 @@ Solver = get_solver("ipopt", optarg)
 Solver.solve(m, tee=True).write()
 
 build_RPB_costing(m.fs)
-
+# iutil.from_json(m.fs, fname='80PCC_54_sol.json.gz')
 Solver.solve(m, tee=True)
 
-m.fs.RPB.ads.flow_mol_inlet.fix()
+# m.fs.RPB.ads.flow_mol_inlet.fix()
 
 
 
@@ -215,10 +216,10 @@ RPB_util.set_bounds(m.fs)
 
 res_df = RPB_util.make_results_table(m.fs)
 cap_init = m.fs.RPB.ads.CO2_capture[0]()
-for cap in np.linspace(cap_init, 0.99, 10):
+for cap in np.linspace(cap_init, 0.9, 20):
     m.fs.RPB.ads.CO2_capture.fix(cap)
-    # Solver.solve(m, tee=True)
-    opt_res = solver_methods.NEOS_solver(m.fs)
+    Solver.solve(m, tee=True)
+    # opt_res = solver_methods.NEOS_solver(m.fs)
     res_df = res_df.join(RPB_util.make_results_table(m.fs), rsuffix=f'_{cap}')
     # print(m.fs.RPB.report_custom())
     # print(f'================\n{m.fs.RPB.ads.F_in[0]()}\n{m.fs.RPB.des.Tx[0]()}\n================')
