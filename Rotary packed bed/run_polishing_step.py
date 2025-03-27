@@ -191,35 +191,49 @@ for v in design_variables:
 
 # full solve with IPOPT
 Solver = get_solver("ipopt", optarg)
-Solver.solve(m, tee=True).write()
+# Solver.solve(m, tee=True).write()
 
 build_RPB_costing(m.fs)
-# iutil.from_json(m.fs, fname='80PCC_54_sol.json.gz')
+iutil.from_json(m.fs, fname='80PCC_90_init.json.gz')
+m.fs.RPB.ads.CO2_capture.unfix()
+m.fs.RPB.ads.flow_mol_inlet.unfix()
+for v in design_variables:
+    v.fix()
 Solver.solve(m, tee=True)
 
-# m.fs.RPB.ads.flow_mol_inlet.fix()
+m.fs.RPB.ads.flow_mol_inlet.fix()
 
 
 
-m.fs.alpha_obj = Param(initialize=0.1, mutable=True)
+m.fs.alpha_obj = Param(initialize=0.5, mutable=True)
 @m.fs.Objective()
 def min_energy(b):
     # return b.alpha_obj * b.RPB.energy_requirement[0] - (1-b.alpha_obj)*b.RPB.productivity[0]
     return b.costing.LCOC
+    # return -b.RPB.ads.CO2_capture[0]
+# m.fs.RPB.ads.CO2_capture.setub(0.9)
 
 for v in design_variables:
     v.unfix()
 
 RPB_util.set_bounds(m.fs)
 # iutil.from_json(m, fname='RPB_init_try2.json.gz')
-
+# solver_methods.NEOS_solver(m.fs)
 
 res_df = RPB_util.make_results_table(m.fs)
 cap_init = m.fs.RPB.ads.CO2_capture[0]()
-for cap in np.linspace(cap_init, 0.9, 20):
+for cap in np.linspace(cap_init, 0.99, 1):
     m.fs.RPB.ads.CO2_capture.fix(cap)
-    Solver.solve(m, tee=True)
-    # opt_res = solver_methods.NEOS_solver(m.fs)
+    # Solver.solve(m, tee=True)
+    iutil.to_json(m.fs, fname='temp.json.gz')
+    while True:
+        try:
+            iutil.from_json(m.fs, fname='temp.json.gz')
+            opt_res = solver_methods.NEOS_solver(m.fs)
+            break
+        except:
+            print('Broke')
+            None
     res_df = res_df.join(RPB_util.make_results_table(m.fs), rsuffix=f'_{cap}')
     # print(m.fs.RPB.report_custom())
     # print(f'================\n{m.fs.RPB.ads.F_in[0]()}\n{m.fs.RPB.des.Tx[0]()}\n================')
