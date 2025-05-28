@@ -70,25 +70,25 @@ m.fs.regeneration_prod = Product(property_package = m.fs.gas_props)
 
 
 # limited discretization, much faster
-# m.fs.RPB = RotaryPackedBed(
-#     property_package = m.fs.gas_props,
-#     z_init_points = (0.01,0.99),
-#     o_init_points = (0.01,0.99),
-#     mixed_sorbent_list = ['Tetraamine', 'Diamine'],
-# )
-
-# increased number of discretization points, lower mass balance error
-z_init_points=tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1])
-o_init_points=tuple(np.geomspace(0.005, 0.1, 8)) + tuple(np.linspace(0.1, 0.995, 10)[1:])
-z_nfe=20
-o_nfe=20
 m.fs.RPB = RotaryPackedBed(
     property_package = m.fs.gas_props,
-    z_init_points=z_init_points,
-    o_init_points=o_init_points,
-    z_nfe=z_nfe,
-    o_nfe=o_nfe,
+    z_init_points = (0.01,0.99),
+    o_init_points = (0.01,0.99),
+    mixed_sorbent_list = ['Tetraamine', 'Diamine'],
 )
+
+# increased number of discretization points, lower mass balance error
+# z_init_points=tuple(np.geomspace(0.01, 0.5, 9)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 9))[::-1])
+# o_init_points=tuple(np.geomspace(0.005, 0.1, 8)) + tuple(np.linspace(0.1, 0.995, 10)[1:])
+# z_nfe=20
+# o_nfe=20
+# m.fs.RPB = RotaryPackedBed(
+#     property_package = m.fs.gas_props,
+#     z_init_points=z_init_points,
+#     o_init_points=o_init_points,
+#     z_nfe=z_nfe,
+#     o_nfe=o_nfe,
+# )
 # z_init_points=tuple(np.geomspace(0.01, 0.5, 7)[:-1]) + tuple((1 - np.geomspace(0.01, 0.5, 7))[::-1])
 # o_init_points=tuple(np.geomspace(0.005, 0.1, 6)) + tuple(np.linspace(0.1, 0.995, 8)[1:])
 # m.fs.RPB = RotaryPackedBed(
@@ -111,9 +111,9 @@ TransformationFactory("network.expand_arcs").apply_to(m)
 m.fs.flue_gas_in.pressure.fix(1.5*1e5)
 m.fs.flue_gas_in.temperature.fix(30+273.15)
 m.fs.flue_gas_out.pressure.fix(1.03*1e5)
-m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.008)
+m.fs.flue_gas_in.mole_frac_comp[0,"CO2"].fix(0.04)
 m.fs.flue_gas_in.mole_frac_comp[0,"H2O"].fix(0.07)
-m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.008-0.07)
+m.fs.flue_gas_in.mole_frac_comp[0,"N2"].fix(1-0.04-0.07)
 
 #des side
 m.fs.steam_sweep_feed.pressure.fix(1.03*1e5)
@@ -171,11 +171,11 @@ RPB_util.set_bounds(m.fs)
 
 # iutil.from_json(m.fs, fname='layered_polish_90_init5.json.gz')
 # iutil.from_json(m.fs, fname='HighNfe_TA_NGCC_init.json.gz')
-iutil.from_json(m.fs, fname='80PCC_54_sol.json.gz')
+iutil.from_json(m.fs, fname='temp.json.gz')
 # iutil.from_json(m, fname='json_files/archive_polish/90_PCC_80_RPB.json.gz')
 
 design_variables = [
-    m.fs.flue_gas_in.pressure,
+    # m.fs.flue_gas_in.pressure,
     m.fs.steam_sweep_feed.pressure,
     m.fs.RPB.ads.Tx,
     m.fs.RPB.des.Tx,
@@ -194,22 +194,22 @@ Solver = get_solver("ipopt", optarg)
 # Solver.solve(m, tee=True).write()
 
 # build_RPB_costing(m.fs)
-iutil.from_json(m.fs, fname='80PCC_90_init.json.gz')
+# iutil.from_json(m.fs, fname='80PCC_90_init.json.gz')
 m.fs.RPB.ads.CO2_capture.unfix()
 m.fs.RPB.ads.flow_mol_inlet.unfix()
 for v in design_variables:
     v.fix()
-Solver.solve(m, tee=True)
+# Solver.solve(m, tee=True)
 
-m.fs.RPB.ads.flow_mol_inlet.fix()
+# m.fs.RPB.ads.flow_mol_inlet.fix()
 
 
 
-m.fs.alpha_obj = Param(initialize=0.5, mutable=True)
+m.fs.alpha_obj = Param(initialize=0.75, mutable=True)
 @m.fs.Objective()
 def min_energy(b):
-    # return b.alpha_obj * b.RPB.energy_requirement[0] - (1-b.alpha_obj)*b.RPB.productivity[0]
-    return b.costing.LCOC
+    return b.alpha_obj * b.RPB.energy_requirement[0] - (1-b.alpha_obj)*b.RPB.productivity[0]
+    # return b.costing.LCOC
     # return -b.RPB.ads.CO2_capture[0]
 # m.fs.RPB.ads.CO2_capture.setub(0.9)
 
@@ -219,6 +219,10 @@ for v in design_variables:
 RPB_util.set_bounds(m.fs)
 # iutil.from_json(m, fname='RPB_init_try2.json.gz')
 # solver_methods.NEOS_solver(m.fs)
+
+@m.fs.RPB.Constraint(m.fs.RPB.ads.z)
+def sorbent_weight_eqn(b, z):
+    return sum(b.sorbent_weight[z, s] for s in ['DA', 'TA']) == 1
 
 res_df = RPB_util.make_results_table(m.fs)
 cap_init = m.fs.RPB.ads.CO2_capture[0]()
