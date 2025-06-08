@@ -171,11 +171,11 @@ RPB_util.set_bounds(m.fs)
 
 # iutil.from_json(m.fs, fname='layered_polish_90_init5.json.gz')
 # iutil.from_json(m.fs, fname='HighNfe_TA_NGCC_init.json.gz')
-iutil.from_json(m.fs, fname='temp.json.gz')
+iutil.from_json(m.fs, fname='PCC_sol3.json.gz')
 # iutil.from_json(m, fname='json_files/archive_polish/90_PCC_80_RPB.json.gz')
 
 design_variables = [
-    # m.fs.flue_gas_in.pressure,
+    m.fs.flue_gas_in.pressure,
     m.fs.steam_sweep_feed.pressure,
     m.fs.RPB.ads.Tx,
     m.fs.RPB.des.Tx,
@@ -185,7 +185,7 @@ design_variables = [
     # m.fs.RPB.D,
 ]
 m.fs.RPB.ads.CO2_capture.unfix()
-m.fs.RPB.ads.flow_mol_inlet.unfix()
+m.fs.flue_gas_in.flow_mol.unfix()
 for v in design_variables:
     v.fix()
 
@@ -196,7 +196,7 @@ Solver = get_solver("ipopt", optarg)
 # build_RPB_costing(m.fs)
 # iutil.from_json(m.fs, fname='80PCC_90_init.json.gz')
 m.fs.RPB.ads.CO2_capture.unfix()
-m.fs.RPB.ads.flow_mol_inlet.unfix()
+m.fs.flue_gas_in.flow_mol.unfix()
 for v in design_variables:
     v.fix()
 # Solver.solve(m, tee=True)
