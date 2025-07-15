@@ -142,6 +142,8 @@ optarg = {
     "bound_push": 1e-22,
     # "mu_init": 1e-3,
     "nlp_scaling_method": "user-scaling",
+    'linear_solver': 'ma57',
+    'ma57_automatic_scaling': 'yes',
     'halt_on_ampl_error': 'yes',
 }
 init_points = [1e-5,1e-3,1e-1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1]
@@ -155,7 +157,7 @@ iutil.from_json(m, fname='RPB flowsheet 081924, limited disc.json.gz')
 # iutil.from_json(m, fname='json_files/archive_polish/90_PCC_80_RPB.json.gz')
 # iutil.from_json(m, fname='min LCOC res 91124.json.gz')
 
-iutil.from_json(m, fname='sens_init_wrpm.json.gz')
+iutil.from_json(m, fname='sens_init_vel.json.gz')
 # full solve with IPOPT
 Solver = get_solver("ipopt_v2", optarg)
 Solver.solve(m, tee=True).write()
